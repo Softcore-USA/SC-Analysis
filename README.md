@@ -1,1 +1,1 @@
-# SoftCore Side Channel Analyis in Rust
+# "SoftCore" Side Channel Analyis in Rust
