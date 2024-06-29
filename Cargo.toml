@@ -4,3 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+egui = "0.27.2"
+egui_plot = "0.27.2"
+plotters-iced = "0.10.0"
+plotters = "0.3.6"
