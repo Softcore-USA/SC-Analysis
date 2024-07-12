@@ -1,36 +1,54 @@
-mod wave;
+#[macro_use]
+extern crate diesel;
 
-use std::collections::hash_map::Values;
-use std::collections::HashMap;
+mod wave;
+pub mod schema;
+use std::env;
 use std::fs::File;
 use std::error::Error;
 use csv::ReaderBuilder;
+use diesel::dsl::max;
 use eframe::Frame;
 use egui::{CentralPanel, ComboBox, Context};
 use egui_plot::{BoxPlot, Legend, Line, Plot, PlotPoints};
 use plotters::prelude::*;
-use splines::{Interpolation, Key, Spline};
-
-
+use diesel::prelude::*;
+use crate::schema::{trace_sets, traces, voltage_readings};
+use dotenv::dotenv;
 
 struct App {
-    data: Vec<Vec<(f64, f64)>>,
-    selected_plot: usize,
+    conn: SqliteConnection,
+    data: Vec<(f64, f64)>,  // Store only the currently selected trace
+    selected_trace_id: i32,  // ID of the selected trace
+}
 
+fn establish_connection() -> SqliteConnection {
+    dotenv().ok();
+
+    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    SqliteConnection::establish(&database_url).expect(&format!("Error connecting to {}", database_url))
 }
 
 impl eframe::App for App {
-    fn update(&mut self, ctx: &Context, frame: &mut Frame) {
-        CentralPanel::default().show(ctx, |ui| {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        egui::CentralPanel::default().show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.label("Select Plot:");
-                ComboBox::from_label("")
-                    .selected_text(format!("Plot {}", self.selected_plot + 1))
+                if ui.button("Refresh Data").clicked() {
+                    self.load_data();
+                }
+                ui.label("Select Trace ID:");
+                if ComboBox::from_label("")
+                    .selected_text(format!("Trace ID {}", self.selected_trace_id))
                     .show_ui(ui, |ui| {
-                        for (i, _) in self.data.iter().enumerate() {
-                            ui.selectable_value(&mut self.selected_plot, i, format!("Plot {}", i + 1));
+                        for id in 1..=2000 {  // Example ID range
+                            if ui.selectable_value(&mut self.selected_trace_id, id, format!("Trace ID {}", id)).clicked() {
+                                self.load_data();  // Load data when a new trace ID is selected
+                            }
                         }
-                    });
+                    }).response.changed()
+                {
+                    self.load_data();  // Optionally load data again if needed
+                }
             });
 
             let plot = Plot::new("trace_plot")
@@ -45,42 +63,60 @@ impl eframe::App for App {
     }
 }
 
+#[derive(Queryable, Selectable)]
+struct VoltageReading {
+    id: Option<i32>,
+    trace_id: i32,
+    timestep: f32,
+    voltage_value: f32,
+}
+
+
 impl App {
     fn create_plot(&self) -> Line {
-        let selected_data = &self.data[self.selected_plot];
+        let selected_data = &self.data;
         let values: PlotPoints = selected_data.iter().map(|&(x, y)| [x, y]).collect();
         Line::new(values)
     }
 
-    fn new(data: Vec<Vec<(f64, f64)>>) -> Self {
+    // Function to load trace data from the database for the selected trace ID
+    pub fn load_data(&mut self) {
+        use crate::schema::voltage_readings::dsl::*;
+
+        self.data.clear();  // Clear existing data
+
+        let results = voltage_readings
+            .filter(trace_id.eq(self.selected_trace_id))
+            .load::<VoltageReading>(&mut self.conn)
+            .expect("Error loading voltage readings");
+
+        // Collect data for the current trace
+        self.data = results
+            .iter()
+            .map(|reading| (reading.timestep as f64, reading.voltage_value as f64))
+            .collect();
+    }
+
+
+    fn new(conn: SqliteConnection) -> Self {
         App {
-            data,
-            selected_plot: 0
+            conn,
+            data: vec![],
+            selected_trace_id: 0
 
         }
     }
 }
 
-fn smooth_line(data: &[(f64, f64)], num_points: usize) -> Vec<(f64, f64)> {
-    let keys: Vec<_> = data.iter().map(|&(x, y)| Key::new(x, y, Interpolation::Linear)).collect();
-    let spline = Spline::from_vec(keys);
-
-    let x_min = data.first().unwrap().0;
-    let x_max = data.last().unwrap().0;
-    let step = (x_max - x_min) / (num_points as f64 - 1.0);
-
-    (0..num_points)
-        .map(|i| {
-            let x = x_min + i as f64 * step;
-            let y = spline.clamped_sample(x).unwrap_or(0.0);
-            (x, y)
-        })
-        .collect()
-}
 
 fn main() -> Result<(), eframe::Error> {
 
-    let data = load_csv("data/EMAcquisition_4thQuadranthotspot+StaticAlign.csv").unwrap();
+    //let data = load_csv("data/EMAcquisition_4thQuadranthotspot+StaticAlign.csv").unwrap();
+
+
+    let connection = establish_connection();
+
+    //insert_data(&mut connection, data.clone()).ok();
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([1250.0, 750.0]),
@@ -89,10 +125,51 @@ fn main() -> Result<(), eframe::Error> {
     eframe::run_native(
         "Ground Station",
         options,
-        Box::new(|_cc| Ok(Box::new(App::new(data)))),
+        Box::new(|_cc| Ok(Box::new(App::new(connection)))),
     )
 
 }
+
+fn insert_data(conn: &mut SqliteConnection, data: Vec<Vec<(f64, f64)>>) -> QueryResult<()> {
+    conn.transaction(|conn| {  // Use the closure parameter `conn` instead of the outer `conn`
+        // Create a new trace set
+        diesel::insert_into(trace_sets::table)
+            .default_values()
+            .execute(conn)?;
+
+        // Retrieve the last inserted ID for the trace set
+        let set_id_result = trace_sets::table
+            .select(diesel::dsl::max(trace_sets::id))
+            .first::<Option<i32>>(conn)?
+            .unwrap();
+
+        // Iterate over the columns which represent different traces
+        for column in data {
+            // Create a new trace
+            diesel::insert_into(traces::table)
+                .values(traces::set_id.eq(set_id_result))
+                .execute(conn)?;
+
+            let trace_id_result = traces::table
+                .select(diesel::dsl::max(traces::id))
+                .first::<Option<i32>>(conn)?
+                .unwrap();
+
+            // Insert voltage readings
+            for &(time, voltage) in &column {
+                diesel::insert_into(voltage_readings::table)
+                    .values((
+                        voltage_readings::trace_id.eq(trace_id_result),
+                        voltage_readings::timestep.eq(time as f32),
+                        voltage_readings::voltage_value.eq(voltage as f32),
+                    ))
+                    .execute(conn)?;
+            }
+        }
+        Ok(())
+    })
+}
+
 
 
 fn load_csv(file_path: &str) -> Result<Vec<Vec<(f64, f64)>>, Box<dyn Error>> {
