@@ -97,13 +97,8 @@ fn load_from_file(file_path: &str) -> io::Result<Vec<Vec<(f64, f64)>>> {
     file.read_to_end(&mut buffer)?;
     let decompressed = zstd::decode_all(&buffer[..]).unwrap();
 
-    // Split the buffer into chunks for parallel decompression
-    let chunks: Vec<_> = decompressed.chunks(decompressed.len() / num_cpus::get()).collect();
-    let decoded_chunks: Result<Vec<Vec<Vec<(f64, f64)>>>, _> = chunks.into_par_iter().map(|chunk| {
-        bincode::decode_from_slice(chunk, config).map(|(data, _)| data)
-    }).collect();
 
-    let data: Vec<Vec<(f64, f64)>> = decoded_chunks.unwrap().into_iter().flatten().collect();
+    let data: Vec<Vec<(f64, f64)>> = bincode::decode_from_slice(&*decompressed, config).unwrap().0;
     Ok(data)
 }
 
