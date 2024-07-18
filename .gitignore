@@ -3,3 +3,4 @@
 /.idea
 /plotters-doc-data
 data
+*.bin

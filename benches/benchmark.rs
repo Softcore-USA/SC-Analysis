@@ -1,92 +1,47 @@
-mod wave;
-mod trace_plotter;
-
-use std::fs::File;
 use std::error::Error;
+use std::fs::File;
 use std::io;
 use std::io::{Read, Write};
-use std::time::Instant;
-use csv::ReaderBuilder;
-use eframe::Frame;
-use egui::{Context};
-use splines::{Interpolation, Key, Spline};
-use bincode;
+use std::time::Duration;
 use bincode::config;
-use rayon::iter::ParallelIterator;
-use rayon::prelude::IntoParallelIterator;
+use criterion::{black_box, Criterion, criterion_group, criterion_main, SamplingMode};
+use csv::ReaderBuilder;
+use rayon::iter::IntoParallelIterator;
 use zstd::encode_all;
-use crate::trace_plotter::TracePlotter;
-
-struct App {
-    traces: Vec<TracePlotter>,
-
-}
-
-impl eframe::App for App {
-    fn update(&mut self, ctx: &Context, frame: &mut Frame) {
-        if let Some(&mut ref mut trace) = self.traces.first_mut() {
-            trace.render(ctx);
-        }
-    }
-}
-
-impl App {
+use rayon::iter::ParallelIterator;
 
 
-    fn new(data: Vec<Vec<(f64, f64)>>) -> Self {
-        App {
-            traces: vec![TracePlotter::new(data)]
-        }
-    }
-}
+fn benchmark_functions(c: &mut Criterion) {
+    //let data = load_csv("data/EMAcquisition_4thQuadranthotspot+StaticAlign.csv").unwrap();
 
-fn smooth_line(data: &[(f64, f64)], num_points: usize) -> Vec<(f64, f64)> {
-    let keys: Vec<_> = data.iter().map(|&(x, y)| Key::new(x, y, Interpolation::Linear)).collect();
-    let spline = Spline::from_vec(keys);
+    let mut group = c.benchmark_group("flat-sampling");
+    group.sampling_mode(SamplingMode::Flat);
 
-    let x_min = data.first().unwrap().0;
-    let x_max = data.last().unwrap().0;
-    let step = (x_max - x_min) / (num_points as f64 - 1.0);
-
-    (0..num_points)
-        .map(|i| {
-            let x = x_min + i as f64 * step;
-            let y = spline.clamped_sample(x).unwrap_or(0.0);
-            (x, y)
-        })
-        .collect()
-}
-
-fn main() -> Result<(), eframe::Error> {
-    // Measure the execution time of loading data from CSV
-    // let start_csv = Instant::now();
-    // let data = load_csv("data/EMAcquisition_4thQuadranthotspot+StaticAlign.csv").unwrap();
-    // let duration_csv = start_csv.elapsed();
-    // println!("Time taken to load CSV: {:?}", duration_csv);
+    // group.bench_function("write_to_file", |b| {
+    //     b.iter(|| write_to_file(black_box(&data), black_box("data.bin")).unwrap())
+    // });
     //
-    // write_to_file(&data, "data2.bin").unwrap();
+    // group.bench_function("load_from_file", |b| {
+    //     b.iter(|| load_from_file(black_box("data.bin")).unwrap())
+    // });
 
-    // Measure the execution time of loading data from a binary file
-    let start_bin = Instant::now();
-    let loaded_data = load_from_file("data2.bin").unwrap();
-    let duration_bin = start_bin.elapsed();
-    println!("Time taken to load binary file: {:?}", duration_bin);
-
-    let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([1250.0, 750.0]),
-        ..Default::default()
-    };
-    eframe::run_native(
-        "Ground Station",
-        options,
-        Box::new(|_cc| Ok(Box::new(App::new(loaded_data)))),
-    )
-
+    group.bench_function("load_csv", |b| {
+        b.iter(|| load_csv(black_box("data/EMAcquisition_4thQuadranthotspot+StaticAlign.csv")).unwrap())
+    });
+}
+fn custom_criterion() -> Criterion {
+    Criterion::default()
+        .sample_size(10)  // Set the number of samples here
+        .measurement_time(Duration::from_secs(59))  // Increase the target time to 5 seconds
+        .configure_from_args()  // This allows further configuration from CLI
 }
 
-
-
-
+criterion_group!{
+    name = benches;
+    config = custom_criterion();
+    targets = benchmark_functions
+}
+criterion_main!(benches);
 
 
 fn load_from_file(file_path: &str) -> io::Result<Vec<Vec<(f64, f64)>>> {
