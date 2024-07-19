@@ -40,23 +40,6 @@ impl App {
     }
 }
 
-fn smooth_line(data: &[(f64, f64)], num_points: usize) -> Vec<(f64, f64)> {
-    let keys: Vec<_> = data.iter().map(|&(x, y)| Key::new(x, y, Interpolation::Linear)).collect();
-    let spline = Spline::from_vec(keys);
-
-    let x_min = data.first().unwrap().0;
-    let x_max = data.last().unwrap().0;
-    let step = (x_max - x_min) / (num_points as f64 - 1.0);
-
-    (0..num_points)
-        .map(|i| {
-            let x = x_min + i as f64 * step;
-            let y = spline.clamped_sample(x).unwrap_or(0.0);
-            (x, y)
-        })
-        .collect()
-}
-
 fn main() -> Result<(), eframe::Error> {
     // Measure the execution time of loading data from CSV
     // let start_csv = Instant::now();

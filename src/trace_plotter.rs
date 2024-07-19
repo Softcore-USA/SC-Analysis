@@ -1,13 +1,15 @@
+use std::ops::Range;
+use std::time::{Duration, Instant};
 use eframe::emath::{Rect, Vec2};
 use eframe::epaint::{Color32, Stroke};
 use egui::{CentralPanel, ComboBox, Context, Event, Key, Pos2, Rounding, Shape, Vec2b};
 use egui::epaint::RectShape;
-use egui_plot::{BoxElem, BoxPlot, BoxSpread, Legend, Line, Plot, PlotBounds, PlotItem, PlotPoint, PlotPoints, Polygon, VLine};
+use egui_plot::{BoxElem, BoxPlot, BoxSpread, Legend, Line, Plot, PlotBounds, PlotItem, PlotPoint, PlotPoints, PlotUi, Polygon, VLine};
 
 #[derive(Clone, Debug)]
 pub struct TracePlotter{
     trace: Vec<Vec<(f64, f64)>>,
-    selected_plot: usize,
+    selected_plot_range: Range<usize>,
     start_pos: Option<PlotPoint>,
     end_pos: Option<PlotPoint>,
     pointer_down: bool,
@@ -18,24 +20,41 @@ pub struct TracePlotter{
 
 impl TracePlotter {
     pub fn render(&mut self, ctx: &Context,){
-        if ctx.input(|i| i.key_pressed(Key::ArrowUp)) &&
-            self.selected_plot + 1 < self.trace.len() {
-                self.selected_plot += 1;
+        // Handle key inputs to change the selected plot range
+        if ctx.input(|i| i.key_pressed(Key::ArrowUp)) {
+            if self.selected_plot_range.end < self.trace.len() {
+                self.selected_plot_range = self.selected_plot_range.start + 1..self.selected_plot_range.end + 1;
+            }
         }
-        if ctx.input(|i| i.key_pressed(Key::ArrowDown)) && self.selected_plot - 1 < self.trace.len() {
-            self.selected_plot -= 1;
-        }
-        CentralPanel::default().show(ctx, |ui| {
 
+        if ctx.input(|i| i.key_pressed(Key::ArrowDown)) {
+            if self.selected_plot_range.start > 0 {
+                self.selected_plot_range = self.selected_plot_range.start - 1..self.selected_plot_range.end - 1;
+            }
+        }
+
+        CentralPanel::default().show(ctx, |ui| {
 
 
             ui.horizontal(|ui| {
                 ui.label("Select Plot:");
                 ComboBox::from_label("")
-                    .selected_text(format!("Plot {}", self.selected_plot + 1))
+                    .selected_text(format!(
+                        "Plot {}",
+                        self.selected_plot_range.start + 1
+                    ))
                     .show_ui(ui, |ui| {
                         for (i, _) in self.trace.iter().enumerate() {
-                            ui.selectable_value(&mut self.selected_plot, i, format!("Plot {}", i + 1));
+                            if ui
+                                .selectable_value(
+                                    &mut self.selected_plot_range,
+                                    i..i + 1,
+                                    format!("Plot {}", i + 1),
+                                )
+                                .clicked()
+                            {
+                                self.selected_plot_range = i..i + 1;
+                            }
                         }
                     });
             });
@@ -55,6 +74,28 @@ impl TracePlotter {
                     });
                     (scroll, i.pointer.primary_down(), i.modifiers)
                 });
+
+                if let Some(scroll) = scroll {
+                    if modifiers.command {
+                        // Control key is held, expand or shrink only one side
+                        if scroll.y > 0.0 {
+                            if self.selected_plot_range.end < self.trace.len() {
+                                self.selected_plot_range = self.selected_plot_range.start..self.selected_plot_range.end + 1;
+                            }
+                        } else if scroll.y < 0.0 {
+                            if self.selected_plot_range.end > self.selected_plot_range.start + 1 {
+                                self.selected_plot_range = self.selected_plot_range.start..self.selected_plot_range.end - 1;
+                            }
+                        }
+                    } else {
+                        // Expand or shrink both sides
+                        if scroll.y > 0.0 && self.selected_plot_range.end < self.trace.len() {
+                            self.selected_plot_range = self.selected_plot_range.start + 1..self.selected_plot_range.end + 1;
+                        } else if scroll.y < 0.0 && self.selected_plot_range.start > 0 {
+                            self.selected_plot_range = self.selected_plot_range.start - 1..self.selected_plot_range.end - 1;
+                        }
+                    }
+                }
 
 
 
@@ -77,40 +118,35 @@ impl TracePlotter {
                         ));
                         self.auto_bound = false;
                     }
+                    let plot_bounds = plot_ui.plot_bounds();
 
-                    if ctx.input(|input| input.key_pressed(Key::Escape)) {
-                        // Get the current plot bounds for comparison
-                        let current_bounds = plot_ui.plot_bounds();
-
-                        // Check if the last recorded bounds are the same as the current bounds
-                        if let Some(last_bounds) = self.zoom_history.last() {
-                            if last_bounds == &current_bounds {
-                                // Remove the last entry if it matches the current view
-                                self.zoom_history.pop();
-                            }
-                        }
-
-                        if let Some(bounds) = self.zoom_history.pop() {
-                            plot_ui.set_plot_bounds(bounds);
-                        } else {
-                            plot_ui.set_plot_bounds(PlotBounds::from_min_max(
-                                [self.bounds.0, self.bounds.2],
-                                [self.bounds.1, self.bounds.3],
-                            ));
-                        }
+                    // Create and draw lines for each trace in the selected range
+                    for i in self.selected_plot_range.clone() {
+                        let line = self.create_line(&self.trace[i], &plot_bounds, 100_000);
+                        plot_ui.line(line);
                     }
 
-                    plot_ui.line(self.create_line());
+
 
                     if self.pointer_down != pointer_down {
                         if !self.pointer_down {
-                            self.start_pos = Some(plot_ui.pointer_coordinate().unwrap());
+                            if let Some(coord) = plot_ui.pointer_coordinate() {
+                                self.start_pos = Some(PlotPoint {
+                                    x: coord.x.clamp(plot_bounds.min()[0], plot_bounds.max()[0]),
+                                    y: coord.y.clamp(plot_bounds.min()[1], plot_bounds.max()[1]),
+                                });
+                            }
                         }
-
                         self.pointer_down = pointer_down;
                     }
+
                     if self.pointer_down {
-                        self.end_pos = plot_ui.pointer_coordinate();
+                        if let Some(coord) = plot_ui.pointer_coordinate() {
+                            self.end_pos = Some(PlotPoint {
+                                x: coord.x.clamp(plot_bounds.min()[0], plot_bounds.max()[0]),
+                                y: coord.y.clamp(plot_bounds.min()[1], plot_bounds.max()[1]),
+                            });
+                        }
                     }
 
 
@@ -135,47 +171,34 @@ impl TracePlotter {
                         }
                     }
 
-                    if let (Some(start), Some(end)) = (self.start_pos, self.end_pos){
+                    if ctx.input(|input| input.key_pressed(Key::Escape)) {
+                        // Get the current plot bounds for comparison
+                        let current_bounds = plot_ui.plot_bounds();
 
-                        let plot_bounds = plot_ui.plot_bounds();
-                        let min_y = plot_bounds.min()[1];
-                        let max_y = plot_bounds.max()[1];
-
-                        let points = vec![
-                            [start.x, min_y],
-                            [end.x, min_y],
-                            [end.x, max_y],
-                            [start.x, max_y],
-                            [start.x, min_y], // close the box by returning to the start point
-                        ];
-
-                        let polygon = Polygon::new(PlotPoints::new(points))
-                            .stroke(Stroke::new(5.0, Color32::BLUE))
-                            .fill_color(Color32::from_rgba_premultiplied(100, 100, 255, 5));
-
-                        plot_ui.polygon(polygon);
-                    }
-
-                    if let Some(mut scroll) = scroll {
-                        let zoomed_factor =plot_ui.plot_bounds().width() as f32;
-
-                        if modifiers.mac_cmd {
-                            let zoom_factor = Vec2::from([
-                                ((scroll.y * zoomed_factor) / 10.0).exp(),
-                                1.0,
-                            ]);
-
-                            plot_ui.zoom_bounds_around_hovered(zoom_factor)
-
-                        } else {
-                            scroll = Vec2::new(scroll.x * zoomed_factor, 0.0);
-
-
-                            let delta_pos = 0.001 * scroll;
-                            plot_ui.translate_bounds(delta_pos);
+                        // Check if the last recorded bounds are the same as the current bounds
+                        if let Some(last_bounds) = self.zoom_history.last() {
+                            if last_bounds == &current_bounds {
+                                // Remove the last entry if it matches the current view
+                                self.zoom_history.pop();
+                            }
                         }
 
+                        if let Some(bounds) = self.zoom_history.pop() {
+                            plot_ui.set_plot_bounds(bounds);
+                        } else {
+                            plot_ui.set_plot_bounds(PlotBounds::from_min_max(
+                                [self.bounds.0, self.bounds.2],
+                                [self.bounds.1, self.bounds.3],
+                            ));
+                        }
+
+                        self.start_pos = None;
+                        self.end_pos = None;
                     }
+
+                    self.draw_selection_box(plot_ui);
+
+
 
                 });
             });
@@ -185,9 +208,59 @@ impl TracePlotter {
         });
     }
 
-    fn create_line(&self) -> Line {
-        let selected_data = &self.trace[self.selected_plot];
-        let values: PlotPoints = selected_data.iter().map(|&(x, y)| [x, y]).collect();
+    fn draw_selection_box(&self, mut plot_ui: &mut PlotUi){
+        if let (Some(start), Some(end)) = (self.start_pos, self.end_pos){
+
+            let plot_bounds = plot_ui.plot_bounds();
+            let min_y = plot_bounds.min()[1];
+            let max_y = plot_bounds.max()[1];
+
+            let points = vec![
+                [start.x, min_y],
+                [end.x, min_y],
+                [end.x, max_y],
+                [start.x, max_y],
+                [start.x, min_y], // close the box by returning to the start point
+            ];
+
+            let polygon = Polygon::new(PlotPoints::new(points))
+                .stroke(Stroke::new(5.0, Color32::BLUE))
+                .fill_color(Color32::from_rgba_premultiplied(100, 100, 255, 5));
+
+            plot_ui.polygon(polygon);
+        }
+    }
+
+    fn create_line(&self, trace: &Vec<(f64, f64)>, plot_bounds: &PlotBounds, max_total_points: usize) -> Line {
+        let min_x = plot_bounds.min()[0];
+        let max_x = plot_bounds.max()[0];
+
+        let visible_points: Vec<[f64; 2]> = trace
+            .iter()
+            .filter(|&&(x, _)| x >= min_x && x <= max_x)
+            .map(|&(x, y)| [x, y])
+            .collect();
+
+        let total_points = visible_points.len();
+        let max_visible_points_per_trace = max_total_points / (self.selected_plot_range.end - self.selected_plot_range.start).max(1);
+
+        let step = if total_points > max_visible_points_per_trace {
+            total_points / max_visible_points_per_trace
+        } else {
+            1
+        };
+
+        // Downsampling with spike detection
+        let mut values: Vec<[f64; 2]> = Vec::new();
+        let mut last_y = visible_points[0][1];
+        for (i, &point) in visible_points.iter().enumerate() {
+            let (x, y) = (point[0], point[1]);
+            if i % step == 0 || (y - last_y).abs() > 0.2 { // Threshold to detect spikes
+                values.push(point);
+                last_y = y;
+            }
+        }
+
         Line::new(values)
     }
 
@@ -216,7 +289,7 @@ impl TracePlotter {
             }
         }
 
-        (min_x + min_x * 0.02, max_x+ max_x * 0.02, min_y+ min_y * 0.02, max_y+ max_y * 0.02)
+        (min_x, max_x, min_y, max_y)
     }
 
     pub(crate) fn new(trace_data: Vec<Vec<(f64, f64)>>) -> Self {
@@ -225,7 +298,7 @@ impl TracePlotter {
 
         TracePlotter{
             trace: trace_data,
-            selected_plot: 0,
+            selected_plot_range: 0..1,
             start_pos: None,
             end_pos: None,
             pointer_down: false,
