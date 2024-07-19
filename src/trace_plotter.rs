@@ -120,12 +120,12 @@ impl TracePlotter {
                     }
                     let plot_bounds = plot_ui.plot_bounds();
 
-                    // Create and draw lines for each trace in the selected range
-                    for i in self.selected_plot_range.clone() {
-                        let line = self.create_line(&self.trace[i], &plot_bounds, 100_000);
-                        plot_ui.line(line);
-                    }
-
+                    // // Create and draw lines for each trace in the selected range
+                    // for i in self.selected_plot_range.clone() {
+                    //     let line = self.create_line(&self.trace[i], &plot_bounds, 100_000);
+                    //     plot_ui.line(line);
+                    // }
+                    self.draw_traces(plot_ui, 100_000);
 
 
                     if self.pointer_down != pointer_down {
@@ -231,37 +231,53 @@ impl TracePlotter {
         }
     }
 
-    fn create_line(&self, trace: &Vec<(f64, f64)>, plot_bounds: &PlotBounds, max_total_points: usize) -> Line {
-        let min_x = plot_bounds.min()[0];
-        let max_x = plot_bounds.max()[0];
+    fn draw_traces(&mut self, plot_ui: &mut PlotUi, max_total_points: usize) {
+        let plot_bounds = plot_ui.plot_bounds();
 
-        let visible_points: Vec<[f64; 2]> = trace
-            .iter()
-            .filter(|&&(x, _)| x >= min_x && x <= max_x)
-            .map(|&(x, y)| [x, y])
-            .collect();
+        for i in self.selected_plot_range.clone() {
+            let trace = &self.trace[i];
 
-        let total_points = visible_points.len();
-        let max_visible_points_per_trace = max_total_points / (self.selected_plot_range.end - self.selected_plot_range.start).max(1);
+            let min_x = plot_bounds.min()[0];
+            let max_x = plot_bounds.max()[0];
 
-        let step = if total_points > max_visible_points_per_trace {
-            total_points / max_visible_points_per_trace
-        } else {
-            1
-        };
+            // Filter points that are within the current x-axis bounds
+            let visible_points: Vec<[f64; 2]> = trace
+                .iter()
+                .filter(|&&(x, _)| x >= min_x && x <= max_x)
+                .map(|&(x, y)| [x, y])
+                .collect();
 
-        // Downsampling with spike detection
-        let mut values: Vec<[f64; 2]> = Vec::new();
-        let mut last_y = visible_points[0][1];
-        for (i, &point) in visible_points.iter().enumerate() {
-            let (x, y) = (point[0], point[1]);
-            if i % step == 0 || (y - last_y).abs() > 0.2 { // Threshold to detect spikes
-                values.push(point);
-                last_y = y;
+            let total_points = visible_points.len();
+            let max_visible_points_per_trace = max_total_points / (self.selected_plot_range.end - self.selected_plot_range.start).max(1);
+
+            let step = if total_points > max_visible_points_per_trace {
+                total_points / max_visible_points_per_trace
+            } else {
+                1
+            };
+
+            // Downsampling with spike detection
+            let mut values: Vec<[f64; 2]> = Vec::new();
+            let mut last_y = visible_points[0][1];
+            for (i, &point) in visible_points.iter().enumerate() {
+                let (x, y) = (point[0], point[1]);
+                if i % step == 0 || (y - last_y).abs() > 0.2 { // Threshold to detect spikes
+                    values.push(point);
+                    last_y = y;
+                }
             }
+
+            let line = Line::new(PlotPoints::new(values));
+            plot_ui.line(line);
         }
 
-        Line::new(values)
+        if self.auto_bound {
+            plot_ui.set_plot_bounds(PlotBounds::from_min_max(
+                [self.bounds.0, self.bounds.2],
+                [self.bounds.1, self.bounds.3],
+            ));
+            self.auto_bound = false;
+        }
     }
 
 
