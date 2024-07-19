@@ -255,11 +255,23 @@ impl TracePlotter {
             let max_x = plot_bounds.max()[0];
 
             // Filter points that are within the current x-axis bounds
-            let visible_points: Vec<[f64; 2]> = trace
-                .iter()
-                .filter(|&&(x, _)| x >= min_x && x <= max_x)
-                .map(|&(x, y)| [x, y])
-                .collect();
+            // Include the next point outside the bounds if available
+            let mut visible_points: Vec<[f64; 2]> = Vec::new();
+            let mut add_next_point = true;
+            let mut add_prev_point = true;
+
+            for &(x, y) in trace {
+                if x >= min_x && x <= max_x {
+                    visible_points.push([x, y]);
+                    add_next_point = true;
+                } else if x > max_x && add_next_point {
+                    visible_points.push([x, y]);
+                    add_next_point = false;
+                } else if x < min_x && add_prev_point {
+                    visible_points.insert(0, [x, y]);
+                    add_prev_point = false;
+                }
+            }
 
             let total_points = visible_points.len();
             let max_visible_points_per_trace = max_total_points / (self.selected_plot_range.end - self.selected_plot_range.start).max(1);
