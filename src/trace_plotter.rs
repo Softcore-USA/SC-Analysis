@@ -38,22 +38,36 @@ impl TracePlotter {
 
             ui.horizontal(|ui| {
                 ui.label("Select Plot:");
+                ui.label("Start:");
                 ComboBox::from_label("")
-                    .selected_text(format!(
-                        "Plot {}",
-                        self.selected_plot_range.start + 1
-                    ))
+                    .selected_text(format!("Plot {}", self.selected_plot_range.start + 1))
                     .show_ui(ui, |ui| {
                         for (i, _) in self.trace.iter().enumerate() {
                             if ui
-                                .selectable_value(
-                                    &mut self.selected_plot_range,
-                                    i..i + 1,
-                                    format!("Plot {}", i + 1),
-                                )
+                                .selectable_value(&mut self.selected_plot_range.start, i, format!("Plot {}", i + 1))
                                 .clicked()
                             {
-                                self.selected_plot_range = i..i + 1;
+                                self.selected_plot_range.start = i;
+                                if self.selected_plot_range.start > self.selected_plot_range.end {
+                                    self.selected_plot_range.end = self.selected_plot_range.start + 1;
+                                }
+                            }
+                        }
+                    });
+
+                ui.label("End:");
+                ComboBox::from_label(" ")
+                    .selected_text(format!("Plot {}", self.selected_plot_range.end))
+                    .show_ui(ui, |ui| {
+                        for (i, _) in self.trace.iter().enumerate() {
+                            if ui
+                                .selectable_value(&mut self.selected_plot_range.end, i + 1, format!("Plot {}", i + 1))
+                                .clicked()
+                            {
+                                self.selected_plot_range.end = i + 1;
+                                if self.selected_plot_range.end < self.selected_plot_range.start {
+                                    self.selected_plot_range.start = self.selected_plot_range.end - 1;
+                                }
                             }
                         }
                     });

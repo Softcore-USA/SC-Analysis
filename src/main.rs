@@ -5,6 +5,7 @@ use std::fs::File;
 use std::error::Error;
 use std::io;
 use std::io::{Read, Write};
+use std::process::exit;
 use std::time::Instant;
 use csv::ReaderBuilder;
 use eframe::Frame;
@@ -15,6 +16,7 @@ use bincode::config;
 use rayon::iter::ParallelIterator;
 use rayon::prelude::IntoParallelIterator;
 use zstd::encode_all;
+use log::log;
 use crate::trace_plotter::TracePlotter;
 
 struct App {
@@ -51,7 +53,15 @@ fn main() -> Result<(), eframe::Error> {
 
     // Measure the execution time of loading data from a binary file
     let start_bin = Instant::now();
-    let loaded_data = load_from_file("data2.bin").unwrap();
+    let file_path = "./data/100x100XYAquisition.bin";
+    let loaded_data = match load_from_file(file_path) {
+        Ok(data) => data,
+        Err(_) => {
+            println!("Could not find file specified : \"{}\" Not found", file_path);
+            exit(1)
+        }
+    };
+
     let duration_bin = start_bin.elapsed();
     println!("Time taken to load binary file: {:?}", duration_bin);
 
@@ -60,7 +70,7 @@ fn main() -> Result<(), eframe::Error> {
         ..Default::default()
     };
     eframe::run_native(
-        "Ground Station",
+        file_path,
         options,
         Box::new(|_cc| Ok(Box::new(App::new(loaded_data)))),
     )
