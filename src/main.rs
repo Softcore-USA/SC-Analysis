@@ -1,6 +1,4 @@
-extern crate core;
-
-mod nav_bar;
+mod title_bar;
 mod trace_plotter;
 mod wave;
 mod math;
@@ -8,8 +6,8 @@ mod math;
 use crate::trace_plotter::TracePlotter;
 use bincode::config;
 use csv::ReaderBuilder;
-use eframe::Frame;
-use egui::CentralPanel;
+use eframe::egui::Frame;
+use egui::{CentralPanel, Color32};
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use rayon::iter::ParallelIterator;
@@ -29,32 +27,50 @@ struct App {
 }
 
 impl eframe::App for App {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut Frame) {
-        CentralPanel::default().show(ctx, |ui| {
-            ui.label("Hello from the root viewport");
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let root_panel = Frame {
+            inner_margin: 0.0.into(),
+            fill: ctx.style().visuals.window_fill(),
+            rounding: 15.0.into(),
+            stroke: ctx.style().visuals.widgets.noninteractive.fg_stroke,
+            ..Default::default()
+        };
 
-            if ui.button("Open new Trace Plotter").clicked() {
-                let file_path = "./data/100x100XYAquisition.bin";
-                let loaded_data = match load_from_file(file_path) {
-                    Ok(data) => data,
-                    Err(_) => {
-                        println!(
-                            "Could not find file specified : \"{}\" Not found",
-                            file_path
-                        );
-                        exit(1)
-                    }
-                };
+        let content_panel = Frame {
+            inner_margin: 10.0.into(),
+            fill: Color32::TRANSPARENT,
+            ..Default::default()
+        };
 
-                self.open_trace_plotter(loaded_data, generate_random_string(10));
+        CentralPanel::default().frame(root_panel).show(ctx, |ui| {
+            title_bar::custom_title_bar(ui);
+
+            CentralPanel::default().frame(content_panel).show_inside(ui, |ui| {
+                ui.label("Hello from the root viewport");
+
+                if ui.button("Open new Trace Plotter").clicked() {
+                    let file_path = "./data2.bin";
+                    let loaded_data = match load_from_file(file_path) {
+                        Ok(data) => data,
+                        Err(_) => {
+                            println!(
+                                "Could not find file specified : \"{}\" Not found",
+                                file_path
+                            );
+                            exit(1)
+                        }
+                    };
+
+                    self.open_trace_plotter(loaded_data, generate_random_string(10));
+                }
+            });
+
+            self.trace_plotters.retain(|(_, show)| *show);
+
+            for (ref mut trace_plotter, ref mut show) in &mut self.trace_plotters {
+                trace_plotter.render(ctx, show);
             }
         });
-
-        self.trace_plotters.retain(|(_, show)| *show);
-
-        for (ref mut trace_plotter, ref mut show) in &mut self.trace_plotters {
-            trace_plotter.render(ctx, show);
-        }
     }
 }
 
@@ -106,9 +122,13 @@ fn main() -> Result<(), eframe::Error> {
     println!("Time taken to load binary file: {:?}", duration_bin);
 
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([1250.0, 750.0]),
+        viewport: egui::ViewportBuilder::default()
+            .with_decorations(false)
+            .with_inner_size([1250.0, 750.0])
+            .with_transparent(true),
         ..Default::default()
     };
+
     eframe::run_native(
         "SC-Analysis",
         options,
