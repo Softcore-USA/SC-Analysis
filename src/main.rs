@@ -105,27 +105,16 @@ impl App {
 }
 
 fn main() -> Result<(), eframe::Error> {
-    // Measure the execution time of loading data from CSV
-    let start_csv = Instant::now();
-    let data = load_csv("data/100x100XYAquisition.txt").unwrap();
-    let duration_csv = start_csv.elapsed();
-
-     println!("Time taken to load CSV: {:?} - {}", duration_csv,data.len());
+    // // Measure the execution time of loading data from CSV
+    // let start_csv = Instant::now();
+    // let data = load_csv("data/100x100XYAquisition.txt").unwrap();
+    // let duration_csv = start_csv.elapsed();
     //
-    write_to_file(&data, "data.bin").unwrap();
+    //  println!("Time taken to load CSV: {:?} - {}", duration_csv,data.len());
+    // //
+    // write_to_file(&data, "data.bin").unwrap();
 
-    let file_path = "./data.bin";
-    let loaded_data = match load_from_file(file_path) {
-        Ok(data) => data,
-        Err(_) => {
-            println!(
-                "Could not find file specified : \"{}\" Not found",
-                file_path
-            );
-            exit(1)
-        }
-    };
-    println!("{}",loaded_data.len());
+
 
     SimpleLogger::new().with_level(LevelFilter::Info).init().unwrap();
 
