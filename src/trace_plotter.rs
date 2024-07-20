@@ -30,12 +30,12 @@ impl TracePlotter {
 
         test.open(open).show(ctx, |ui| {
             // Handle key inputs to change the selected plot range
-            if ctx.input(|i| i.key_pressed(Key::ArrowUp)) && self.selected_plot_range.end < self.trace.len() {
+            if ctx.input(|i| i.key_pressed(Key::ArrowUp)) && self.selected_plot_range.end < self.trace.len() && self.currently_selected {
                 self.selected_plot_range =
                     self.selected_plot_range.start + 1..self.selected_plot_range.end + 1;
             }
 
-            if ctx.input(|i| i.key_pressed(Key::ArrowDown)) && self.selected_plot_range.start > 0 {
+            if ctx.input(|i| i.key_pressed(Key::ArrowDown)) && self.selected_plot_range.start > 0 && self.currently_selected{
                 self.selected_plot_range =
                     self.selected_plot_range.start - 1..self.selected_plot_range.end - 1;
             }
@@ -118,26 +118,12 @@ impl TracePlotter {
         let plot_transform = plot_response.transform;
         let plot_bounds = plot_transform.bounds();
         let response = plot_response.response;
-        let mut text = "text";
-        ui.add(egui::TextEdit::singleline(&mut text).hint_text("Write folder name"));
-
 
         if response.hovered() {
             ui.output_mut(|out| out.cursor_icon = CursorIcon::ResizeHorizontal);
         }
 
-
-        let pointer_in_plot = if let Some(pointer_pos) = ctx.input(|i| i.pointer.hover_pos()) {
-            let plot_pos = plot_transform.value_from_position(pointer_pos);
-            plot_pos.x >= plot_bounds.min()[0]
-                && plot_pos.x <= plot_bounds.max()[0]
-                && plot_pos.y >= plot_bounds.min()[1]
-                && plot_pos.y <= plot_bounds.max()[1]
-        } else {
-            false
-        };
-
-        if pointer_in_plot {
+        if self.currently_selected {
             if scroll_delta.length_sq() > 0.0 {
                 if modifiers.command {
                     // Control key is held, expand or shrink only one side

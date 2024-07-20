@@ -1,6 +1,9 @@
+extern crate core;
+
 mod nav_bar;
 mod trace_plotter;
 mod wave;
+mod math;
 
 use crate::trace_plotter::TracePlotter;
 use bincode::config;
@@ -17,6 +20,8 @@ use std::io;
 use std::io::{Read, Write};
 use std::process::exit;
 use std::time::Instant;
+use log::LevelFilter;
+use simple_logger::SimpleLogger;
 use zstd::encode_all;
 
 struct App {
@@ -29,7 +34,7 @@ impl eframe::App for App {
             ui.label("Hello from the root viewport");
 
             if ui.button("Open new Trace Plotter").clicked() {
-                let file_path = "./data2.bin";
+                let file_path = "./data/100x100XYAquisition.bin";
                 let loaded_data = match load_from_file(file_path) {
                     Ok(data) => data,
                     Err(_) => {
@@ -68,6 +73,15 @@ impl App {
     }
 
     fn open_trace_plotter(&mut self, trace_data: Vec<Vec<(f64, f64)>>, title: String) {
+        let shifts = math::static_align(
+            100,
+            &trace_data,
+            100..1000,
+            1000,
+            0.50
+        );
+        println!("Shifts: {:?}", shifts);
+
         let trace_plotter = TracePlotter::new(trace_data, title);
 
         self.trace_plotters.push((trace_plotter, true));
@@ -85,6 +99,8 @@ fn main() -> Result<(), eframe::Error> {
 
     // Measure the execution time of loading data from a binary file
     let start_bin = Instant::now();
+
+    SimpleLogger::new().with_level(LevelFilter::Info).init().unwrap();
 
     let duration_bin = start_bin.elapsed();
     println!("Time taken to load binary file: {:?}", duration_bin);
