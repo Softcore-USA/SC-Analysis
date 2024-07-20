@@ -106,20 +106,29 @@ impl App {
 
 fn main() -> Result<(), eframe::Error> {
     // Measure the execution time of loading data from CSV
-    // let start_csv = Instant::now();
-    // let data = load_csv("data/EMAcquisition_4thQuadranthotspot+StaticAlign.csv").unwrap();
-    // let duration_csv = start_csv.elapsed();
-    // println!("Time taken to load CSV: {:?}", duration_csv);
-    //
-    // write_to_file(&data, "data2.bin").unwrap();
+    let start_csv = Instant::now();
+    let data = load_csv("data/100x100XYAquisition.txt").unwrap();
+    let duration_csv = start_csv.elapsed();
 
-    // Measure the execution time of loading data from a binary file
-    let start_bin = Instant::now();
+     println!("Time taken to load CSV: {:?} - {}", duration_csv,data.len());
+    //
+    write_to_file(&data, "data.bin").unwrap();
+
+    let file_path = "./data.bin";
+    let loaded_data = match load_from_file(file_path) {
+        Ok(data) => data,
+        Err(_) => {
+            println!(
+                "Could not find file specified : \"{}\" Not found",
+                file_path
+            );
+            exit(1)
+        }
+    };
+    println!("{}",loaded_data.len());
 
     SimpleLogger::new().with_level(LevelFilter::Info).init().unwrap();
 
-    let duration_bin = start_bin.elapsed();
-    println!("Time taken to load binary file: {:?}", duration_bin);
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -137,12 +146,18 @@ fn main() -> Result<(), eframe::Error> {
 }
 
 fn load_from_file(file_path: &str) -> io::Result<Vec<Vec<(f64, f64)>>> {
-    let config = config::standard().with_limit::<10000000000>();
+    let config = config::standard();
 
     let mut file = File::open(file_path)?;
     let mut buffer = Vec::new();
     file.read_to_end(&mut buffer)?;
+
+    // Measure the execution time of loading data from a binary file
+    let start_bin = Instant::now();
     let decompressed = zstd::decode_all(&buffer[..]).unwrap();
+
+    let duration_bin = start_bin.elapsed();
+    println!("Time taken to load binary file: {:?}", duration_bin);
 
     let data: Vec<Vec<(f64, f64)>> = bincode::decode_from_slice(&decompressed, config)
         .unwrap()
@@ -151,16 +166,10 @@ fn load_from_file(file_path: &str) -> io::Result<Vec<Vec<(f64, f64)>>> {
 }
 
 fn write_to_file(data: &[Vec<(f64, f64)>], file_path: &str) -> io::Result<()> {
-    let config = config::standard().with_limit::<10000000000>();
+    let config = config::standard();
 
-    // Split the data into chunks for parallel compression
-    let chunks: Vec<_> = data.chunks(data.len() / num_cpus::get()).collect();
-    let encoded_chunks: Vec<Vec<u8>> = chunks
-        .into_par_iter()
-        .map(|chunk| bincode::encode_to_vec(chunk, config).unwrap())
-        .collect();
 
-    let encoded: Vec<u8> = encoded_chunks.into_iter().flatten().collect();
+    let encoded: Vec<u8> = bincode::encode_to_vec(data, config).unwrap();
     let mut file = File::create(file_path)?;
     let compressed = encode_all(&encoded[..], 0).unwrap(); // Default compression level
     file.write_all(&compressed)?;
