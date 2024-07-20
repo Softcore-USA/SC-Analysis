@@ -14,7 +14,7 @@ impl Default for SinWaveDefinition {
             phase_shift: 0.0,
             vertical_shift: 0.0,
             amplitude: 0.0,
-            samples: 0
+            samples: 0,
         }
     }
 }
@@ -33,12 +33,11 @@ impl Wave {
 
     pub fn generate_sin_wave(&mut self, wave: SinWaveDefinition) {
         for i in 0..wave.samples {
-            self.data_points.push(
-                (
-                    i as f32 * wave.sample_delta ,
-                (((i as f32 - wave.phase_shift) * wave.sample_delta).sin() * wave.amplitude) + wave.vertical_shift
-                )
-            );
+            self.data_points.push((
+                i as f32 * wave.sample_delta,
+                (((i as f32 - wave.phase_shift) * wave.sample_delta).sin() * wave.amplitude)
+                    + wave.vertical_shift,
+            ));
         }
     }
 }
