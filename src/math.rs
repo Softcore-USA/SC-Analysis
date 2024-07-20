@@ -18,7 +18,7 @@ pub fn static_align(target_trace: usize, traces: &[Vec<(f64, f64)>], sample_sele
     let mut matching_traces = Mutex::new(Vec::<(usize, i64, f64)>::new());
 
     (min..=max).into_par_iter().for_each(|index|{
-        let correlations = calculate_correlation(
+        let correlations = calculate_correlation_gpu(
             target_trace,
             &target,
             &traces,
@@ -49,6 +49,41 @@ pub fn static_align(target_trace: usize, traces: &[Vec<(f64, f64)>], sample_sele
     Ok(matching_traces.clone())
 }
 
+extern crate arrayfire as af;
+use af::{Array, Dim4, mean, var, stdev, matmul, transpose, sum_all};
+use arrayfire::{MatProp, stdev_v2, var_v2, VarianceBias};
+
+pub fn calculate_correlation_gpu(target_index: usize, target_samples: &[(f64, f64)], traces: &[Vec<(f64, f64)>], selection: std::ops::Range<usize>) -> Vec<f64> {
+    // Convert target_samples and traces to ArrayFire Arrays
+    let target_y: Vec<f64> = target_samples.iter().map(|&(_, y)| y).collect();
+    let target_y = Array::new(&target_y, Dim4::new(&[target_y.len() as u64, 1, 1, 1]));
+
+    let mut correlations = vec![0.0; traces.len()];
+
+    for (index, trace) in traces.iter().enumerate() {
+        if index != target_index {
+            let trace_y: Vec<f64> = trace[selection.clone()].iter().map(|&(_, y)| y).collect();
+            let trace_y = Array::new(&trace_y, Dim4::new(&[trace_y.len() as u64, 1, 1, 1]));
+
+            let target_mean = mean(&target_y, 0);
+            let trace_mean = mean(&trace_y, 0);
+
+            let target_var = var_v2(&target_y, VarianceBias::DEFAULT, 0);
+            let trace_var = var_v2(&trace_y, VarianceBias::DEFAULT, 0);
+
+            let target_stdev = stdev_v2(&target_y, VarianceBias::DEFAULT, 0);
+            let trace_stdev = stdev_v2(&trace_y, VarianceBias::DEFAULT, 0);
+
+            let covariance = mean(&matmul(&target_y, &transpose(&trace_y, false), af::MatProp::NONE, MatProp::NONE), 0) - target_mean * trace_mean;
+
+            let correlation = covariance / (target_stdev * trace_stdev);
+            let (correlation_scalar, _) = sum_all(&correlation);
+            correlations[index] = correlation_scalar;
+        }
+    }
+
+    correlations
+}
 /// Calculates the correlation between selected samples from the target_trace and every other trace and returns the values
 pub fn calculate_correlation(target_index: usize, target_samples: &[(f64, f64)], traces: &[Vec<(f64, f64)>], selection: std::ops::Range<usize>) -> Vec<f64> {
 

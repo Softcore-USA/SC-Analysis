@@ -49,7 +49,7 @@ impl eframe::App for App {
                 ui.label("Hello from the root viewport");
 
                 if ui.button("Open new Trace Plotter").clicked() {
-                    let file_path = "./data2.bin";
+                    let file_path = "./data/data2.bin";
                     let loaded_data = match load_from_file(file_path) {
                         Ok(data) => data,
                         Err(_) => {
