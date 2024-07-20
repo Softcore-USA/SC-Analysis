@@ -49,7 +49,7 @@ impl eframe::App for App {
                 ui.label("Hello from the root viewport");
 
                 if ui.button("Open new Trace Plotter").clicked() {
-                    let file_path = "./data/data2.bin";
+                    let file_path = "./data2.bin";
                     let loaded_data = match load_from_file(file_path) {
                         Ok(data) => data,
                         Err(_) => {
@@ -69,6 +69,7 @@ impl eframe::App for App {
 
             for (ref mut trace_plotter, ref mut show) in &mut self.trace_plotters {
                 trace_plotter.render(ctx, show);
+                //println!("{:?}",trace_plotter.get_selected_data_range_indices())
             }
         });
     }
@@ -89,15 +90,53 @@ impl App {
     }
 
     fn open_trace_plotter(&mut self, trace_data: Vec<Vec<(f64, f64)>>, title: String) {
-        let shifts = math::static_align(
-            100,
+        let start_csv = Instant::now();
+        let shifts = math::compute_static_alignment(
+            0,
             &trace_data,
-            100..1000,
-            1000,
+            552..707,
+            200,
             0.50
         );
+
+        let duration_csv = start_csv.elapsed();
+        println!("Time taken to compute: {:?}", duration_csv);
         println!("Shifts: {:?}", shifts);
 
+        let start_csv = Instant::now();
+        let shifts = math::static_align(
+            0,
+            &trace_data,
+            552..707,
+            200,
+            0.50
+        ).unwrap();
+
+
+
+        let duration_csv = start_csv.elapsed();
+        println!("Time taken to compute: {:?}", duration_csv);
+
+        let mut max_alignments = Vec::new();
+
+        let mut max_values: std::collections::HashMap<usize, (i64, f64)> = std::collections::HashMap::new();
+        for (i, shift, value) in shifts {
+            if let Some((_, max_value)) = max_values.get(&i) {
+                if value > *max_value {
+                    max_values.insert(i, (shift, value));
+                }
+            } else {
+                max_values.insert(i, (shift, value));
+            }
+        }
+
+        for (i, (shift, value)) in max_values {
+            max_alignments.push((i, shift, value));
+        }
+
+        max_alignments.sort_by(|a, b| a.0.cmp(&b.0));
+
+        println!("Shifts: {:?}", max_alignments);
         let trace_plotter = TracePlotter::new(trace_data, title);
 
         self.trace_plotters.push((trace_plotter, true));

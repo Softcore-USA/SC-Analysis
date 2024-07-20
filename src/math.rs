@@ -1,8 +1,112 @@
+use std::ops::Range;
 use std::time::Instant;
 use std::sync::Mutex;
+use arrayfire::{Array, ConvDomain, ConvMode, corrcoef, Dim4, fft_convolve1, index_gen, Indexer, mean, Seq};
 use rayon::prelude::*;
+use arrayfire::{MatProp, stdev_v2, var_v2, VarianceBias};
+use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
+pub(crate) fn compute_static_alignment(
+    target_trace: usize,
+    traces: &[Vec<(f64, f64)>],
+    sample_selection: Range<usize>,
+    max_distance: usize,
+    correlation_threshold: f64,
+) -> Vec<(usize, isize, f64)> {
+    // Convert target trace to ArrayFire array
+    let target: Vec<f64> = traces[target_trace]
+        .iter()
+        .skip(sample_selection.start)
+        .take(sample_selection.end - sample_selection.start)
+        .map(|&(_, y)| y)
+        .collect();
 
-pub fn static_align(target_trace: usize, traces: &[Vec<(f64, f64)>], sample_selection: std::ops::Range<usize>, max_distance: usize, correlation_threshold: f64) -> Result<(Vec::<(usize, i64, f64)>), String> {
+    let target_array = Array::new(&target, Dim4::new(&[target.len() as u64, 1, 1, 1]));
+
+    // Calculate the standard deviation of the target trace
+    let target_stddev = target.iter().copied().map(|x| x * x).sum::<f64>().sqrt();
+
+    // Convert all traces to a batched ArrayFire array
+    let batched_traces: Vec<f64> = traces
+        .iter()
+        .filter(|trace| trace != &&traces[target_trace])
+        .flat_map(|trace| {
+            trace
+                .iter()
+                .skip(sample_selection.start)
+                .take(sample_selection.end - sample_selection.start)
+                .map(|&(_, y)| y)
+        })
+        .collect();
+
+    let num_traces = traces.len() - 1;
+    let trace_len = sample_selection.end - sample_selection.start;
+    let batched_array = Array::new(&batched_traces, Dim4::new(&[trace_len as u64, num_traces as u64, 1, 1]));
+
+    // Cross-correlation using FFT convolution
+    let corr = fft_convolve1(&target_array, &batched_array, ConvMode::DEFAULT);
+
+    // Host transfer all correlation results at once
+    let mut host_corr = vec![0.0; corr.elements()];
+    corr.host(&mut host_corr);
+
+    // Calculate standard deviations of the other traces
+    let other_stddevs: Vec<f64> = traces
+        .iter()
+        .filter(|trace| trace != &&traces[target_trace])
+        .map(|trace| {
+            trace
+                .iter()
+                .skip(sample_selection.start)
+                .take(sample_selection.end - sample_selection.start)
+                .map(|&(_, y)| y * y)
+                .sum::<f64>()
+                .sqrt()
+        })
+        .collect();
+
+    // Process results in parallel
+    let alignments: Vec<(usize, isize, f64)> = (0..num_traces)
+        .into_par_iter()
+        .filter_map(|i| {
+            // Extract the correlation result for the current trace
+            let corr_slice = &host_corr[i * trace_len..(i + 1) * trace_len];
+
+            // Normalize the correlation values
+            let norm_corr_slice: Vec<f64> = corr_slice
+                .iter()
+                .map(|&x| x / (target_stddev * other_stddevs[i]))
+                .collect();
+
+            // Find the peak correlation within the specified range
+            let mut max_corr = 0.0;
+            let mut best_shift = 0;
+
+            for shift in -(max_distance as isize)..=(max_distance as isize) {
+                let idx = (shift + (norm_corr_slice.len() / 2) as isize) as usize;
+                if idx < norm_corr_slice.len() {
+                    let value = norm_corr_slice[idx];
+
+                    if value > max_corr {
+                        max_corr = value;
+                        best_shift = shift;
+                    }
+                }
+            }
+
+            // Check if the correlation exceeds the threshold
+            if max_corr >= correlation_threshold {
+                Some((i, best_shift, max_corr))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    alignments
+}
+
+
+pub fn static_align(target_trace: usize, traces: &[Vec<(f64, f64)>], sample_selection: std::ops::Range<usize>, max_distance: usize, correlation_threshold: f64) -> Result<Vec<(usize, i64, f64)>, String> {
 
     let target= &traces[target_trace][sample_selection.clone()];
     let half_selection = (sample_selection.len() as f64 / 2.0).ceil() as i64;
@@ -18,7 +122,7 @@ pub fn static_align(target_trace: usize, traces: &[Vec<(f64, f64)>], sample_sele
     let mut matching_traces = Mutex::new(Vec::<(usize, i64, f64)>::new());
 
     (min..=max).into_par_iter().for_each(|index|{
-        let correlations = calculate_correlation_gpu(
+        let correlations = calculate_correlation(
             target_trace,
             &target,
             &traces,
@@ -49,41 +153,8 @@ pub fn static_align(target_trace: usize, traces: &[Vec<(f64, f64)>], sample_sele
     Ok(matching_traces.clone())
 }
 
-extern crate arrayfire as af;
-use af::{Array, Dim4, mean, var, stdev, matmul, transpose, sum_all};
-use arrayfire::{MatProp, stdev_v2, var_v2, VarianceBias};
 
-pub fn calculate_correlation_gpu(target_index: usize, target_samples: &[(f64, f64)], traces: &[Vec<(f64, f64)>], selection: std::ops::Range<usize>) -> Vec<f64> {
-    // Convert target_samples and traces to ArrayFire Arrays
-    let target_y: Vec<f64> = target_samples.iter().map(|&(_, y)| y).collect();
-    let target_y = Array::new(&target_y, Dim4::new(&[target_y.len() as u64, 1, 1, 1]));
 
-    let mut correlations = vec![0.0; traces.len()];
-
-    for (index, trace) in traces.iter().enumerate() {
-        if index != target_index {
-            let trace_y: Vec<f64> = trace[selection.clone()].iter().map(|&(_, y)| y).collect();
-            let trace_y = Array::new(&trace_y, Dim4::new(&[trace_y.len() as u64, 1, 1, 1]));
-
-            let target_mean = mean(&target_y, 0);
-            let trace_mean = mean(&trace_y, 0);
-
-            let target_var = var_v2(&target_y, VarianceBias::DEFAULT, 0);
-            let trace_var = var_v2(&trace_y, VarianceBias::DEFAULT, 0);
-
-            let target_stdev = stdev_v2(&target_y, VarianceBias::DEFAULT, 0);
-            let trace_stdev = stdev_v2(&trace_y, VarianceBias::DEFAULT, 0);
-
-            let covariance = mean(&matmul(&target_y, &transpose(&trace_y, false), af::MatProp::NONE, MatProp::NONE), 0) - target_mean * trace_mean;
-
-            let correlation = covariance / (target_stdev * trace_stdev);
-            let (correlation_scalar, _) = sum_all(&correlation);
-            correlations[index] = correlation_scalar;
-        }
-    }
-
-    correlations
-}
 /// Calculates the correlation between selected samples from the target_trace and every other trace and returns the values
 pub fn calculate_correlation(target_index: usize, target_samples: &[(f64, f64)], traces: &[Vec<(f64, f64)>], selection: std::ops::Range<usize>) -> Vec<f64> {
 
