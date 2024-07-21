@@ -100,8 +100,8 @@ impl App {
         );
 
         let duration_csv = start_csv.elapsed();
-        println!("Time taken to compute: {:?}", duration_csv);
-        println!("Shifts: {:?}", shifts);
+        //println!("Time taken to compute: {:?}", duration_csv);
+        //println!("Shifts: {:?}", shifts);
 
         let start_csv = Instant::now();
         let shifts = math::static_align(
@@ -115,7 +115,7 @@ impl App {
 
 
         let duration_csv = start_csv.elapsed();
-        println!("Time taken to compute: {:?}", duration_csv);
+        //println!("Time taken to compute: {:?}", duration_csv);
 
         let mut max_alignments = Vec::new();
 
@@ -136,7 +136,7 @@ impl App {
 
         max_alignments.sort_by(|a, b| a.0.cmp(&b.0));
 
-        println!("Shifts: {:?}", max_alignments);
+        //println!("Shifts: {:?}", max_alignments);
         let trace_plotter = TracePlotter::new(trace_data, title);
 
         self.trace_plotters.push((trace_plotter, true));

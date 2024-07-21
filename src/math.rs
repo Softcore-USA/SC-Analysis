@@ -1,10 +1,9 @@
 use std::ops::Range;
 use std::time::Instant;
 use std::sync::Mutex;
-use arrayfire::{Array, ConvDomain, ConvMode, corrcoef, Dim4, fft_convolve1, index_gen, Indexer, mean, Seq};
+use arrayfire::{Array, ConvDomain, ConvMode, corrcoef, Dim4, fft_convolve1, imax, index_gen, Indexer, max, min, max_all, mean, min_all, norm, NormType, print, Seq, sqrt, sum, exp, pow, tile, pad, BorderType};
 use rayon::prelude::*;
 use arrayfire::{MatProp, stdev_v2, var_v2, VarianceBias};
-use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
 pub(crate) fn compute_static_alignment(
     target_trace: usize,
     traces: &[Vec<(f64, f64)>],
@@ -22,87 +21,118 @@ pub(crate) fn compute_static_alignment(
 
     let target_array = Array::new(&target, Dim4::new(&[target.len() as u64, 1, 1, 1]));
 
-    // Calculate the standard deviation of the target trace
-    let target_stddev = target.iter().copied().map(|x| x * x).sum::<f64>().sqrt();
+    // Clamp the range to valid bounds
+    let search_start = if sample_selection.start > max_distance {
+        sample_selection.start - max_distance
+    } else {
+        0
+    };
+
+    let search_end = (sample_selection.start + sample_selection.len() + max_distance).min(traces[target_trace].len());
+
+    let search_range = search_start..search_end;
 
     // Convert all traces to a batched ArrayFire array
     let batched_traces: Vec<f64> = traces
         .iter()
         .filter(|trace| trace != &&traces[target_trace])
         .flat_map(|trace| {
-            trace
+            trace[search_range.clone()]
                 .iter()
-                .skip(sample_selection.start)
-                .take(sample_selection.end - sample_selection.start)
                 .map(|&(_, y)| y)
+
         })
         .collect();
 
     let num_traces = traces.len() - 1;
-    let trace_len = sample_selection.end - sample_selection.start;
-    let batched_array = Array::new(&batched_traces, Dim4::new(&[trace_len as u64, num_traces as u64, 1, 1]));
+
+
+    let batched_array = Array::new(&batched_traces, Dim4::new(&[search_range.len() as u64, num_traces as u64, 1, 1]));
+    println!("Dimensions of batched_array: {:?}", batched_array.dims());
+
+    //println!("{:?}", batched_array.dims());
 
     // Cross-correlation using FFT convolution
-    let corr = fft_convolve1(&target_array, &batched_array, ConvMode::DEFAULT);
+    let corr = fft_convolve1(&target_array, &batched_array, ConvMode::EXPAND);
+    println!("Dimensions of corr after convolution: {:?}", corr.dims());
 
-    // Host transfer all correlation results at once
-    let mut host_corr = vec![0.0; corr.elements()];
-    corr.host(&mut host_corr);
 
-    // Calculate standard deviations of the other traces
-    let other_stddevs: Vec<f64> = traces
-        .iter()
-        .filter(|trace| trace != &&traces[target_trace])
-        .map(|trace| {
-            trace
-                .iter()
-                .skip(sample_selection.start)
-                .take(sample_selection.end - sample_selection.start)
-                .map(|&(_, y)| y * y)
-                .sum::<f64>()
-                .sqrt()
-        })
-        .collect();
 
-    // Process results in parallel
-    let alignments: Vec<(usize, isize, f64)> = (0..num_traces)
-        .into_par_iter()
-        .filter_map(|i| {
-            // Extract the correlation result for the current trace
-            let corr_slice = &host_corr[i * trace_len..(i + 1) * trace_len];
 
-            // Normalize the correlation values
-            let norm_corr_slice: Vec<f64> = corr_slice
-                .iter()
-                .map(|&x| x / (target_stddev * other_stddevs[i]))
-                .collect();
+    // Compute means
+    let target_mean = mean(&target_array, 0);
+    let batched_mean = mean(&batched_array, 0);
+    println!("Dimensions of target_mean: {:?}", target_mean.dims());
+    println!("Dimensions of batched_mean: {:?}", batched_mean.dims());
 
-            // Find the peak correlation within the specified range
-            let mut max_corr = 0.0;
-            let mut best_shift = 0;
+    // Compute deviations
+    let target_deviation = &target_array - &target_mean;
+    let batched_deviation = &batched_array - &batched_mean;
+    println!("Dimensions of target_deviation: {:?}", target_deviation.dims());
+    println!("Dimensions of batched_deviation: {:?}", batched_deviation.dims());
 
-            for shift in -(max_distance as isize)..=(max_distance as isize) {
-                let idx = (shift + (norm_corr_slice.len() / 2) as isize) as usize;
-                if idx < norm_corr_slice.len() {
-                    let value = norm_corr_slice[idx];
+    let target_deviation_sum = &target_array - &target_mean;
+    let batched_deviation_sum = &batched_array - &batched_mean;
+    println!("Dimensions of target_deviation: {:?}", target_deviation.dims());
+    println!("Dimensions of batched_deviation: {:?}", batched_deviation.dims());
 
-                    if value > max_corr {
-                        max_corr = value;
-                        best_shift = shift;
-                    }
-                }
-            }
+    // Compute numerator: sum of the products of deviations for each trace
+    let numerator = sum(&(&target_deviation * &batched_deviation), 0);
+    println!("Dimensions of numerator: {:?}", numerator.dims());
 
-            // Check if the correlation exceeds the threshold
-            if max_corr >= correlation_threshold {
-                Some((i, best_shift, max_corr))
-            } else {
-                None
-            }
-        })
-        .collect();
+    // Compute denominator: sqrt of the product of the sums of squared deviations
+    let target_deviation_squared = pow(&target_deviation, &2.0, true);
+    let batched_deviation_squared = pow(&batched_deviation, &2.0, true);
+    let sum_target_deviation_squared = sum(&target_deviation_squared, 0);
+    let sum_batched_deviation_squared = sum(&batched_deviation_squared, 0);
+    let denominator = sqrt(&(sum_target_deviation_squared * sum_batched_deviation_squared));
+    println!("Dimensions of denominator: {:?}", denominator.dims());
 
-    alignments
+    // Normalize the correlation values
+    let normalized_corr = &numerator / &denominator;
+    println!("Dimensions of normalized_corr: {:?}", normalized_corr.dims());
+
+    // Compute Pearson correlation coefficient
+    let pc_corr = normalized_corr;  // This is the Pearson correlation if calculated correctly
+    println!("Final Pearson correlation coefficient: {:?}", pc_corr.dims());
+
+
+
+
+
+    println!("{}", pc_corr.dims());
+    //println!("{}", target_mean.elements());
+
+    //let normalized_corr = (&corr - min_val) / range;
+
+
+    let (max_value, max_index) = imax(&pc_corr, 0);
+    let mut max_corr = vec![0.0; max_value.elements()];
+    max_value.host(&mut max_corr);
+    // let mut max_corr_index = vec![0; max_index.elements()];
+    // max_index.host(&mut max_corr_index);
+
+    let center_index = (corr.dims()[0] / 2) as u32;
+
+
+    for i in max_corr {
+        let shift = i as isize - center_index as isize;
+        println!("Max correlation index: {:?}", i);
+        println!("Required shift: {:?}", shift);
+
+    }
+
+
+
+    // println!("{:?}", corr.dims());
+    // let data = stdev_v2(&batched_array, VarianceBias::POPULATION, 0);
+    // println!("{:?}", data.dims());
+    //
+    // let mut other_stddevs = vec![0.0; data.elements()];
+    // data.host(&mut other_stddevs);
+
+panic!()
+    //alignments
 }
 
 
