@@ -20,6 +20,23 @@ pub struct TracePlotter {
 }
 
 impl TracePlotter {
+
+    pub fn get_selected_data_range_indices(&self) -> Option<Range<usize>> {
+        if let (Some(start), Some(end)) = (self.start_pos, self.end_pos) {
+            let start_x = start.x.min(end.x);
+            let end_x = start.x.max(end.x);
+
+            let selected_trace = &self.trace[self.selected_plot_range.start];
+
+            let start_idx = selected_trace.iter().position(|&(x, _)| x >= start_x)?;
+            let end_idx = selected_trace.iter().position(|&(x, _)| x >= end_x)?;
+
+            Some(start_idx..end_idx + 1)
+        } else {
+            None
+        }
+    }
+
     pub fn render(&mut self, ctx: &Context, open: &mut bool) {
         let test = Window::new(&self.title);
         let area = Area::new(Id::new(&self.title)).kind(UiKind::Window);
@@ -88,6 +105,16 @@ impl TracePlotter {
             });
 
             self.render_plot(ctx, ui);
+
+            if let Some(range) = self.get_selected_data_range_indices() {
+                ui.label(format!(
+                    "Selected range start: {:.2}, end: {:.2}, Points: {}",
+                    range.start, range.end, range.len()
+                ));
+            } else {
+                ui.label("");
+            }
+
         });
 
     }
