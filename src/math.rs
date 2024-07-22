@@ -1,16 +1,18 @@
+use std::cmp::Ordering;
 use std::ops::Range;
 use std::time::Instant;
 use std::sync::Mutex;
-use arrayfire::{Array, ConvDomain, ConvMode, corrcoef, Dim4, fft_convolve1, imax, index_gen, Indexer, max, min, max_all, mean, min_all, norm, NormType, print, Seq, sqrt, sum, exp, pow, tile, pad, BorderType};
+use arrayfire::{Array, ConvDomain, ConvMode, corrcoef, Dim4, fft_convolve1, imax, index_gen, Indexer, max, min, max_all, min_all, norm, NormType, print, Seq, sqrt, sum, exp, pow, tile, pad, BorderType, slices, MatProp, stdev_v2, var_v2, VarianceBias, flat};
 use rayon::prelude::*;
-use arrayfire::{MatProp, stdev_v2, var_v2, VarianceBias};
+
+
 pub(crate) fn compute_static_alignment(
     target_trace: usize,
     traces: &[Vec<(f64, f64)>],
     sample_selection: Range<usize>,
     max_distance: usize,
     correlation_threshold: f64,
-) -> Vec<(usize, isize, f64)> {
+) -> Vec<Vec<(f64, f64)>> {
     // Convert target trace to ArrayFire array
     let target: Vec<f64> = traces[target_trace]
         .iter()
@@ -20,6 +22,15 @@ pub(crate) fn compute_static_alignment(
         .collect();
 
     let target_array = Array::new(&target, Dim4::new(&[target.len() as u64, 1, 1, 1]));
+
+    println!("Dimensions of target: {:?}", target_array.dims());
+
+    // let min = min_all(&target_array).0;
+    // let max = max_all(&target_array).0;
+    //
+    // let target_array = (target_array - min) / (max - min);
+
+
 
     // Clamp the range to valid bounds
     let search_start = if sample_selection.start > max_distance {
@@ -39,7 +50,9 @@ pub(crate) fn compute_static_alignment(
         .flat_map(|trace| {
             trace[search_range.clone()]
                 .iter()
+                .rev()
                 .map(|&(_, y)| y)
+
 
         })
         .collect();
@@ -50,7 +63,11 @@ pub(crate) fn compute_static_alignment(
     let batched_array = Array::new(&batched_traces, Dim4::new(&[search_range.len() as u64, num_traces as u64, 1, 1]));
     println!("Dimensions of batched_array: {:?}", batched_array.dims());
 
-    //println!("{:?}", batched_array.dims());
+    // let min = min_all(&batched_array).0;
+    // let max = max_all(&batched_array).0;
+    //
+    // let batched_array = (batched_array - min) / (max - min);
+
 
     // Cross-correlation using FFT convolution
     let corr = fft_convolve1(&target_array, &batched_array, ConvMode::EXPAND);
@@ -58,82 +75,45 @@ pub(crate) fn compute_static_alignment(
 
 
 
-
-    // Compute means
-    let target_mean = mean(&target_array, 0);
-    let batched_mean = mean(&batched_array, 0);
-    println!("Dimensions of target_mean: {:?}", target_mean.dims());
-    println!("Dimensions of batched_mean: {:?}", batched_mean.dims());
-
-    // Compute deviations
-    let target_deviation = &target_array - &target_mean;
-    let batched_deviation = &batched_array - &batched_mean;
-    println!("Dimensions of target_deviation: {:?}", target_deviation.dims());
-    println!("Dimensions of batched_deviation: {:?}", batched_deviation.dims());
-
-    let target_deviation_sum = &target_array - &target_mean;
-    let batched_deviation_sum = &batched_array - &batched_mean;
-    println!("Dimensions of target_deviation: {:?}", target_deviation.dims());
-    println!("Dimensions of batched_deviation: {:?}", batched_deviation.dims());
-
-    // Compute numerator: sum of the products of deviations for each trace
-    let numerator = sum(&(&target_deviation * &batched_deviation), 0);
-    println!("Dimensions of numerator: {:?}", numerator.dims());
-
-    // Compute denominator: sqrt of the product of the sums of squared deviations
-    let target_deviation_squared = pow(&target_deviation, &2.0, true);
-    let batched_deviation_squared = pow(&batched_deviation, &2.0, true);
-    let sum_target_deviation_squared = sum(&target_deviation_squared, 0);
-    let sum_batched_deviation_squared = sum(&batched_deviation_squared, 0);
-    let denominator = sqrt(&(sum_target_deviation_squared * sum_batched_deviation_squared));
-    println!("Dimensions of denominator: {:?}", denominator.dims());
-
-    // Normalize the correlation values
-    let normalized_corr = &numerator / &denominator;
-    println!("Dimensions of normalized_corr: {:?}", normalized_corr.dims());
-
-    // Compute Pearson correlation coefficient
-    let pc_corr = normalized_corr;  // This is the Pearson correlation if calculated correctly
-    println!("Final Pearson correlation coefficient: {:?}", pc_corr.dims());
-
-
-
-
-
-    println!("{}", pc_corr.dims());
-    //println!("{}", target_mean.elements());
-
-    //let normalized_corr = (&corr - min_val) / range;
-
-
-    let (max_value, max_index) = imax(&pc_corr, 0);
+    //
+    let (max_value, max_index) = imax(&corr, 0);
     let mut max_corr = vec![0.0; max_value.elements()];
     max_value.host(&mut max_corr);
-    // let mut max_corr_index = vec![0; max_index.elements()];
-    // max_index.host(&mut max_corr_index);
+    let mut max_corr_index = vec![0; max_index.elements()];
+    max_index.host(&mut max_corr_index);
 
     let center_index = (corr.dims()[0] / 2) as u32;
 
 
-    for i in max_corr {
-        let shift = i as isize - center_index as isize;
-        println!("Max correlation index: {:?}", i);
-        println!("Required shift: {:?}", shift);
+    // for i in max_corr_index {
+    //     let shift = i as isize - center_index as isize;
+    //     println!("Max correlation index: {:?}", i);
+    //     println!("Required shift: {:?}", shift);
+    //
+    // }
 
+
+
+
+    println!("{:?}", corr.dims());
+    let mut corr_vec = vec![0.0; corr.elements()];
+    corr.host(&mut corr_vec);
+
+    let num_rows = (corr.dims()[1]) as usize;
+    let num_cols = (corr.dims()[0]) as usize;
+
+    let mut nested_pairs = vec![vec![(0.0, 0.0); num_cols]; num_rows];
+
+    for i in 0..num_rows {
+        for j in 0..num_cols {
+            let index = i * num_cols + j;
+            nested_pairs[i][j] = ((j as i32 - center_index as i32) as f64, corr_vec[index]);
+        }
     }
 
-
-
-    // println!("{:?}", corr.dims());
-    // let data = stdev_v2(&batched_array, VarianceBias::POPULATION, 0);
-    // println!("{:?}", data.dims());
-    //
-    // let mut other_stddevs = vec![0.0; data.elements()];
-    // data.host(&mut other_stddevs);
-
-panic!()
-    //alignments
+    nested_pairs
 }
+
 
 
 pub fn static_align(target_trace: usize, traces: &[Vec<(f64, f64)>], sample_selection: std::ops::Range<usize>, max_distance: usize, correlation_threshold: f64) -> Result<Vec<(usize, i64, f64)>, String> {
