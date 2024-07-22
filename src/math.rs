@@ -31,6 +31,7 @@ pub(crate) fn compute_static_alignment(
     // let target_array = (target_array - min) / (max - min);
 
 
+    let target_array = Array::new(&target, Dim4::new(&[target.len() as u64, 1, 1, 1]));
 
     // Clamp the range to valid bounds
     let search_start = if sample_selection.start > max_distance {
@@ -52,8 +53,7 @@ pub(crate) fn compute_static_alignment(
                 .iter()
                 .rev()
                 .map(|&(_, y)| y)
-
-
+            
         })
         .collect();
 
@@ -63,16 +63,12 @@ pub(crate) fn compute_static_alignment(
     let batched_array = Array::new(&batched_traces, Dim4::new(&[search_range.len() as u64, num_traces as u64, 1, 1]));
     println!("Dimensions of batched_array: {:?}", batched_array.dims());
 
-    // let min = min_all(&batched_array).0;
-    // let max = max_all(&batched_array).0;
-    //
-    // let batched_array = (batched_array - min) / (max - min);
 
+    //println!("{:?}", batched_array.dims());
 
     // Cross-correlation using FFT convolution
     let corr = fft_convolve1(&target_array, &batched_array, ConvMode::EXPAND);
     println!("Dimensions of corr after convolution: {:?}", corr.dims());
-
 
 
     //
@@ -83,8 +79,7 @@ pub(crate) fn compute_static_alignment(
     max_index.host(&mut max_corr_index);
 
     let center_index = (corr.dims()[0] / 2) as u32;
-
-
+    
     // for i in max_corr_index {
     //     let shift = i as isize - center_index as isize;
     //     println!("Max correlation index: {:?}", i);
@@ -113,9 +108,8 @@ pub(crate) fn compute_static_alignment(
 
     nested_pairs
 }
-
-
-
+    
+    
 pub fn static_align(target_trace: usize, traces: &[Vec<(f64, f64)>], sample_selection: std::ops::Range<usize>, max_distance: usize, correlation_threshold: f64) -> Result<Vec<(usize, i64, f64)>, String> {
 
     let target= &traces[target_trace][sample_selection.clone()];

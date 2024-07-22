@@ -90,7 +90,6 @@ impl App {
     }
 
     fn open_trace_plotter(&mut self, trace_data: Vec<Vec<(f64, f64)>>, title: String) {
-        let start_csv = Instant::now();
         let shifts = math::compute_static_alignment(
             0,
             &trace_data,
@@ -100,6 +99,7 @@ impl App {
         );
 
         let trace_plotter = TracePlotter::new(trace_data, "second".to_string());
+
 
         self.trace_plotters.push((trace_plotter, true));
 
