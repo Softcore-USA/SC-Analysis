@@ -20,7 +20,6 @@ pub struct TracePlotter {
 }
 
 impl TracePlotter {
-
     pub fn get_selected_data_range_indices(&self) -> Option<Range<usize>> {
         if let (Some(start), Some(end)) = (self.start_pos, self.end_pos) {
             let start_x = start.x.min(end.x);
@@ -36,6 +35,7 @@ impl TracePlotter {
             None
         }
     }
+
 
     pub fn render(&mut self, ctx: &Context, open: &mut bool) {
         let test = Window::new(&self.title);

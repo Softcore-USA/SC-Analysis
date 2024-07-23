@@ -1,8 +1,117 @@
+use std::cmp::Ordering;
+use std::ops::Range;
 use std::time::Instant;
 use std::sync::Mutex;
+use arrayfire::{Array, ConvDomain, ConvMode, corrcoef, Dim4, fft_convolve1, imax, index_gen, Indexer, max, min, max_all, min_all, norm, NormType, print, Seq, sqrt, sum, exp, pow, tile, pad, BorderType, slices, MatProp, stdev_v2, var_v2, VarianceBias, flat, inverse, flip};
 use rayon::prelude::*;
 
-pub fn static_align(target_trace: usize, traces: &[Vec<(f64, f64)>], sample_selection: std::ops::Range<usize>, max_distance: usize, correlation_threshold: f64) -> Result<(Vec::<(usize, i64, f64)>), String> {
+
+pub(crate) fn compute_static_alignment(
+    target_trace: usize,
+    traces: &[Vec<(f64, f64)>],
+    sample_selection: Range<usize>,
+    max_distance: usize,
+    correlation_threshold: f64,
+) -> Vec<Vec<(f64, f64)>> {
+    // Convert target trace to ArrayFire array
+    let target: Vec<f64> = traces[target_trace]
+        .iter()
+        .skip(sample_selection.start)
+        .take(sample_selection.end - sample_selection.start)
+        .map(|&(_, y)| y)
+        .collect();
+
+    let target_array = Array::new(&target, Dim4::new(&[target.len() as u64, 1, 1, 1]));
+
+    // Clamp the range to valid bounds
+    let search_start = if sample_selection.start > max_distance {
+        sample_selection.start - max_distance
+    } else {
+        0
+    };
+
+    let search_end = (sample_selection.end + max_distance).min(traces[target_trace].len());
+
+    let search_range = search_start..search_end;
+
+    // Convert all traces to a batched ArrayFire array
+    let batched_traces: Vec<f64> = traces
+        .iter()
+        .filter(|trace| trace != &&traces[target_trace])
+        .flat_map(|trace| {
+            trace[search_range.clone()]
+                .iter()
+                .map(|&(_, y)| y)
+            
+        })
+        .collect();
+
+    let num_traces = traces.len() - 1;
+
+
+    let batched_array = Array::new(&batched_traces, Dim4::new(&[search_range.len() as u64, num_traces as u64, 1, 1]));
+
+    let batched_array = flip(&batched_array, 0);
+
+    // Cross-correlation using FFT convolution
+    let corr = fft_convolve1(&target_array, &batched_array, ConvMode::EXPAND);
+
+    let corr = flip(&corr, 0);
+
+    let sum_of_squares_target = sum(&(&target_array * &target_array), 0);
+    let norm_0th_dim_target = sqrt(&sum_of_squares_target);
+
+    let sum_of_squares_batched = sum(&(&batched_array * &batched_array), 0);
+    let norm_0th_dim_batched = sqrt(&sum_of_squares_batched);
+
+    let norm_corr = &corr / (&norm_0th_dim_target * &norm_0th_dim_batched);
+
+
+    let (max_value, max_index) = imax(&norm_corr, 0);
+    let mut max_corr = vec![0.0; max_value.elements()];
+    max_value.host(&mut max_corr);
+    let mut max_corr_index: Vec<u32> = vec![0; max_index.elements()];
+    max_index.host(&mut max_corr_index);
+
+    let center_index = (corr.dims()[0] / 2) as u32;
+
+    let num_cols = traces.len();
+
+    let nested_pairs: Vec<_> = (0..num_cols).into_par_iter().map(|i| {
+        if i == target_trace {
+            traces[i].clone()
+        } else {
+            let shift_amount = if i > 0 {
+                ((max_corr_index[i - 1] as isize) - center_index as isize) as i32
+            } else {
+                0 // Assuming you need some default or no shift for the first index or specific cases
+            };
+            shift_x_values(traces[i].clone(), shift_amount)
+        }
+    }).collect();
+
+    nested_pairs
+}
+fn shift_x_values(data: Vec<(f64, f64)>, shift: i32) -> Vec<(f64, f64)> {
+    let n = data.len();
+    let mut new_xs = vec![0.0; n];  // Temporarily store new x values
+
+    for (index, (x, _y)) in data.iter().enumerate() {
+        let new_index = if shift > 0 {
+            // Right shift
+            (index + shift as usize) % n
+        } else {
+            // Left shift, with positive modulo handling
+            (n + (index as i32 + shift) as usize % n) % n
+        };
+        new_xs[new_index] = *x;
+    }
+
+    // Pair new x values with original y values
+    data.iter().zip(new_xs.into_iter()).map(|(&(_, y), x)| (x, y)).collect()
+}
+    
+pub fn static_align(target_trace: usize, traces: &[Vec<(f64, f64)>], sample_selection: Range<usize>, max_distance: usize, correlation_threshold: f64) -> Result<Vec<(usize, i64, f64)>, String> {
 
     let target= &traces[target_trace][sample_selection.clone()];
     let half_selection = (sample_selection.len() as f64 / 2.0).ceil() as i64;
@@ -48,6 +157,8 @@ pub fn static_align(target_trace: usize, traces: &[Vec<(f64, f64)>], sample_sele
     matching_traces.sort_by(compare);
     Ok(matching_traces.clone())
 }
+
+
 
 /// Calculates the correlation between selected samples from the target_trace and every other trace and returns the values
 pub fn calculate_correlation(target_index: usize, target_samples: &[(f64, f64)], traces: &[Vec<(f64, f64)>], selection: std::ops::Range<usize>) -> Vec<f64> {

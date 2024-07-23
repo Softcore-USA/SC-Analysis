@@ -49,7 +49,7 @@ impl eframe::App for App {
                 ui.label("Hello from the root viewport");
 
                 if ui.button("Open new Trace Plotter").clicked() {
-                    let file_path = "./data2.bin";
+                    let file_path = "./data.bin";
                     let loaded_data = match load_from_file(file_path) {
                         Ok(data) => data,
                         Err(_) => {
@@ -69,6 +69,7 @@ impl eframe::App for App {
 
             for (ref mut trace_plotter, ref mut show) in &mut self.trace_plotters {
                 trace_plotter.render(ctx, show);
+                //println!("{:?}",trace_plotter.get_selected_data_range_indices())
             }
         });
     }
@@ -89,18 +90,45 @@ impl App {
     }
 
     fn open_trace_plotter(&mut self, trace_data: Vec<Vec<(f64, f64)>>, title: String) {
-        let shifts = math::static_align(
-            100,
+        let start_time = Instant::now();
+
+        let shifts = math::compute_static_alignment(
+            0,
             &trace_data,
-            100..1000,
-            1000,
+            867..992,
+            200,
             0.50
         );
-        println!("Shifts: {:?}", shifts);
 
-        let trace_plotter = TracePlotter::new(trace_data, title);
+        println!("Time Taken: {:?}", start_time.elapsed());
+
+
+
+
+        let start_time = Instant::now();
+
+        // let _ = math::static_align(
+        //     0,
+        //     &trace_data,
+        //     867..992,
+        //     200,
+        //     0.50
+        // );
+
+        println!("Time Taken: {:?}", start_time.elapsed());
+
+
+        let trace_plotter = TracePlotter::new(trace_data, format!("{}_second", title));
+
 
         self.trace_plotters.push((trace_plotter, true));
+
+        //println!("Shifts: {:?}", max_alignments);
+        let trace_plotter = TracePlotter::new(shifts, title);
+
+        self.trace_plotters.push((trace_plotter, true));
+
+
     }
 }
 
@@ -121,7 +149,7 @@ fn main() -> Result<(), eframe::Error> {
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_decorations(false)
+            .with_decorations(true)
             .with_inner_size([1250.0, 750.0])
             .with_transparent(true),
         ..Default::default()
