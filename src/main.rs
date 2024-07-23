@@ -90,15 +90,35 @@ impl App {
     }
 
     fn open_trace_plotter(&mut self, trace_data: Vec<Vec<(f64, f64)>>, title: String) {
+        let start_time = Instant::now();
+
         let shifts = math::compute_static_alignment(
             0,
             &trace_data,
-            580..690,
+            867..992,
             200,
             0.50
         );
 
-        let trace_plotter = TracePlotter::new(trace_data, "second".to_string());
+        println!("Time Taken: {:?}", start_time.elapsed());
+
+
+
+
+        let start_time = Instant::now();
+
+        // let _ = math::static_align(
+        //     0,
+        //     &trace_data,
+        //     867..992,
+        //     200,
+        //     0.50
+        // );
+
+        println!("Time Taken: {:?}", start_time.elapsed());
+
+
+        let trace_plotter = TracePlotter::new(trace_data, format!("{}_second", title));
 
 
         self.trace_plotters.push((trace_plotter, true));
@@ -129,7 +149,7 @@ fn main() -> Result<(), eframe::Error> {
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_decorations(false)
+            .with_decorations(true)
             .with_inner_size([1250.0, 750.0])
             .with_transparent(true),
         ..Default::default()

@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::ops::Range;
 use std::time::Instant;
 use std::sync::Mutex;
-use arrayfire::{Array, ConvDomain, ConvMode, corrcoef, Dim4, fft_convolve1, imax, index_gen, Indexer, max, min, max_all, min_all, norm, NormType, print, Seq, sqrt, sum, exp, pow, tile, pad, BorderType, slices, MatProp, stdev_v2, var_v2, VarianceBias, flat};
+use arrayfire::{Array, ConvDomain, ConvMode, corrcoef, Dim4, fft_convolve1, imax, index_gen, Indexer, max, min, max_all, min_all, norm, NormType, print, Seq, sqrt, sum, exp, pow, tile, pad, BorderType, slices, MatProp, stdev_v2, var_v2, VarianceBias, flat, inverse, flip};
 use rayon::prelude::*;
 
 
@@ -23,16 +23,6 @@ pub(crate) fn compute_static_alignment(
 
     let target_array = Array::new(&target, Dim4::new(&[target.len() as u64, 1, 1, 1]));
 
-    println!("Dimensions of target: {:?}", target_array.dims());
-
-    // let min = min_all(&target_array).0;
-    // let max = max_all(&target_array).0;
-    //
-    // let target_array = (target_array - min) / (max - min);
-
-
-    let target_array = Array::new(&target, Dim4::new(&[target.len() as u64, 1, 1, 1]));
-
     // Clamp the range to valid bounds
     let search_start = if sample_selection.start > max_distance {
         sample_selection.start - max_distance
@@ -40,7 +30,7 @@ pub(crate) fn compute_static_alignment(
         0
     };
 
-    let search_end = (sample_selection.start + sample_selection.len() + max_distance).min(traces[target_trace].len());
+    let search_end = (sample_selection.end + max_distance).min(traces[target_trace].len());
 
     let search_range = search_start..search_end;
 
@@ -51,7 +41,6 @@ pub(crate) fn compute_static_alignment(
         .flat_map(|trace| {
             trace[search_range.clone()]
                 .iter()
-                .rev()
                 .map(|&(_, y)| y)
             
         })
@@ -61,56 +50,68 @@ pub(crate) fn compute_static_alignment(
 
 
     let batched_array = Array::new(&batched_traces, Dim4::new(&[search_range.len() as u64, num_traces as u64, 1, 1]));
-    println!("Dimensions of batched_array: {:?}", batched_array.dims());
 
-
-    //println!("{:?}", batched_array.dims());
+    let batched_array = flip(&batched_array, 0);
 
     // Cross-correlation using FFT convolution
     let corr = fft_convolve1(&target_array, &batched_array, ConvMode::EXPAND);
-    println!("Dimensions of corr after convolution: {:?}", corr.dims());
+
+    let corr = flip(&corr, 0);
+
+    let sum_of_squares_target = sum(&(&target_array * &target_array), 0);
+    let norm_0th_dim_target = sqrt(&sum_of_squares_target);
+
+    let sum_of_squares_batched = sum(&(&batched_array * &batched_array), 0);
+    let norm_0th_dim_batched = sqrt(&sum_of_squares_batched);
+
+    let norm_corr = &corr / (&norm_0th_dim_target * &norm_0th_dim_batched);
 
 
-    //
-    let (max_value, max_index) = imax(&corr, 0);
+    let (max_value, max_index) = imax(&norm_corr, 0);
     let mut max_corr = vec![0.0; max_value.elements()];
     max_value.host(&mut max_corr);
-    let mut max_corr_index = vec![0; max_index.elements()];
+    let mut max_corr_index: Vec<u32> = vec![0; max_index.elements()];
     max_index.host(&mut max_corr_index);
 
     let center_index = (corr.dims()[0] / 2) as u32;
-    
-    // for i in max_corr_index {
-    //     let shift = i as isize - center_index as isize;
-    //     println!("Max correlation index: {:?}", i);
-    //     println!("Required shift: {:?}", shift);
-    //
-    // }
 
+    let num_cols = traces.len();
 
-
-
-    println!("{:?}", corr.dims());
-    let mut corr_vec = vec![0.0; corr.elements()];
-    corr.host(&mut corr_vec);
-
-    let num_rows = (corr.dims()[1]) as usize;
-    let num_cols = (corr.dims()[0]) as usize;
-
-    let mut nested_pairs = vec![vec![(0.0, 0.0); num_cols]; num_rows];
-
-    for i in 0..num_rows {
-        for j in 0..num_cols {
-            let index = i * num_cols + j;
-            nested_pairs[i][j] = ((j as i32 - center_index as i32) as f64, corr_vec[index]);
+    let nested_pairs: Vec<_> = (0..num_cols).into_par_iter().map(|i| {
+        if i == target_trace {
+            traces[i].clone()
+        } else {
+            let shift_amount = if i > 0 {
+                ((max_corr_index[i - 1] as isize) - center_index as isize) as i32
+            } else {
+                0 // Assuming you need some default or no shift for the first index or specific cases
+            };
+            shift_x_values(traces[i].clone(), shift_amount)
         }
-    }
+    }).collect();
 
     nested_pairs
 }
+fn shift_x_values(data: Vec<(f64, f64)>, shift: i32) -> Vec<(f64, f64)> {
+    let n = data.len();
+    let mut new_xs = vec![0.0; n];  // Temporarily store new x values
+
+    for (index, (x, _y)) in data.iter().enumerate() {
+        let new_index = if shift > 0 {
+            // Right shift
+            (index + shift as usize) % n
+        } else {
+            // Left shift, with positive modulo handling
+            (n + (index as i32 + shift) as usize % n) % n
+        };
+        new_xs[new_index] = *x;
+    }
+
+    // Pair new x values with original y values
+    data.iter().zip(new_xs.into_iter()).map(|(&(_, y), x)| (x, y)).collect()
+}
     
-    
-pub fn static_align(target_trace: usize, traces: &[Vec<(f64, f64)>], sample_selection: std::ops::Range<usize>, max_distance: usize, correlation_threshold: f64) -> Result<Vec<(usize, i64, f64)>, String> {
+pub fn static_align(target_trace: usize, traces: &[Vec<(f64, f64)>], sample_selection: Range<usize>, max_distance: usize, correlation_threshold: f64) -> Result<Vec<(usize, i64, f64)>, String> {
 
     let target= &traces[target_trace][sample_selection.clone()];
     let half_selection = (sample_selection.len() as f64 / 2.0).ceil() as i64;
