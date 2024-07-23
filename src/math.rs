@@ -81,7 +81,7 @@ pub(crate) fn compute_static_alignment(
         if i == target_trace {
             traces[i].clone()
         } else {
-            let shift_amount = if i > 0 {
+            let shift_amount = if i > 0 && max_corr[i - 1] > correlation_threshold{
                 ((max_corr_index[i - 1] as isize) - center_index as isize) as i32
             } else {
                 0 // Assuming you need some default or no shift for the first index or specific cases
