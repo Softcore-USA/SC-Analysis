@@ -2,6 +2,10 @@ use egui::{Button, CentralPanel, ComboBox, Context, Direction, Id, Layout, Point
 use rfd::FileDialog;
 use std::path::PathBuf;
 use eframe::emath::Align;
+use egui_modal::Icon;
+use log::error;
+use crate::loaders;
+use crate::loaders::{dialog_box_ok, load_from_file, open_file_explorer};
 
 #[derive(Debug, PartialEq)]
 enum FileItems {
@@ -39,9 +43,7 @@ pub fn custom_title_bar(ui: &mut Ui) {
 
                 ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                     ui.menu_button("File", |ui| {
-                        ui.button("Open").clicked();
-                        ui.button("Close").clicked();
-                        ui.button("Exit").clicked();
+                        file_dropdown_buttons(ui);
                     });
                     ui.menu_button("View", |ui| {
                         ui.button("Side Bar").clicked();
@@ -72,11 +74,32 @@ pub fn custom_title_bar(ui: &mut Ui) {
     // });
 }
 
-pub fn open_file_explorer() -> Option<PathBuf> {
-    FileDialog::new()
-        .add_filter("trace_set", &["bin"])
-        .set_directory("/")
-        .pick_file()
+
+
+fn file_dropdown_buttons(ui: &mut Ui) {
+    let err = dialog_box_ok(ui, "file_error", "Error trying to open file.", Icon::Warning);
+
+    let open_button = Button::new("Open");
+    let exit_button = Button::new("Exit");
+
+    if ui.add(open_button).clicked() {
+        if let Some(path) = open_file_explorer() {
+            match load_from_file(&path) {
+                Ok(data) => println!("{:?}", data),
+                Err(e) => {
+                    error!("Failed to open file: {:?}", e);
+                    err.open();
+                }
+            };
+        } else {
+            error!("Path doesnt exist.");
+            err.open();
+        }
+    }
+
+    if ui.add(exit_button).clicked() {
+        ui.ctx().send_viewport_cmd(ViewportCommand::Close);
+    }
 }
 
 fn minimize_maximize_close(ui: &mut Ui) {
