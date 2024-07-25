@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use eframe::emath::Align;
 use egui_modal::Icon;
 use log::error;
-use crate::loaders;
+use crate::{App, loaders};
 use crate::loaders::{dialog_box_ok, load_from_file, open_file_explorer};
 
 #[derive(Debug, PartialEq)]
@@ -14,6 +14,9 @@ enum FileItems {
     Exit,
 }
 
+impl App {
+    
+}
 pub fn custom_title_bar(ui: &mut Ui) {
     let side_margin = 10.0;
     let title_bar_height = 40.0;
@@ -85,7 +88,7 @@ fn file_dropdown_buttons(ui: &mut Ui) {
     if ui.add(open_button).clicked() {
         if let Some(path) = open_file_explorer() {
             match load_from_file(&path) {
-                Ok(data) => println!("{:?}", data),
+                Ok(data) => {},
                 Err(e) => {
                     error!("Failed to open file: {:?}", e);
                     err.open();

@@ -96,15 +96,6 @@ impl App {
     fn open_trace_plotter(&mut self, trace_data: Vec<Vec<(f64, f64)>>, title: String) {
         let start_time = Instant::now();
 
-        // let shifts = math::compute_static_alignment(
-        //     0,
-        //     &trace_data,
-        //     867..992,
-        //     200,
-        //     0.50
-        // );
-        //
-        // println!("Time Taken: {:?}", start_time.elapsed());
 
 
 
