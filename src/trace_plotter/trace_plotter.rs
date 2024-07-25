@@ -6,6 +6,7 @@ use egui_plot::{
     Legend, Plot, PlotResponse, PlotUi,
 };
 use std::ops::Range;
+use egui::debug_text::print;
 
 const MAX_NUMB_OF_POINTS: usize = 100_000;
 
@@ -44,10 +45,12 @@ impl TracePlotter {
                     self.selected_plot_range.start - 1..self.selected_plot_range.end - 1;
             }
 
+            let mut should_scroll = true;
+
             ui.horizontal(|ui| {
                 ui.label("Select Plot:");
                 ui.label("Start:");
-                ComboBox::from_label("")
+                let start_response = ComboBox::from_label("")
                     .selected_text(format!("Plot {}", self.selected_plot_range.start + 1))
                     .show_ui(ui, |ui| {
                         for (i, _) in self.traces.iter().enumerate() {
@@ -69,7 +72,7 @@ impl TracePlotter {
                     });
 
                 ui.label("End:");
-                ComboBox::from_label(" ")
+                let end_response = ComboBox::from_label(" ")
                     .selected_text(format!("Plot {}", self.selected_plot_range.end))
                     .show_ui(ui, |ui| {
                         for (i, _) in self.traces.iter().enumerate() {
@@ -89,10 +92,17 @@ impl TracePlotter {
                             }
                         }
                     });
+                
+                should_scroll = !ComboBox::is_open(ctx, start_response.response.id) && !ComboBox::is_open(ctx, end_response.response.id);
+
             });
 
+
             self.render_plot(ui);
-            self.update_selected_plot_range(ui);
+            if should_scroll {
+                self.update_selected_plot_range(ui);
+            }
+
 
             if let Some(range) = self
                 .plot_selection
@@ -127,9 +137,10 @@ impl TracePlotter {
         let plot_responce: PlotResponse<()> = plot.show(ui, |plot_ui| {
             plot_ui.set_plot_bounds(self.plot_selection.get_plot_bounds());
 
-            self.plot_selection.draw_selection_box(plot_ui);
 
             self.plot_traces(plot_ui);
+            self.plot_selection.draw_selection_box(plot_ui);
+
         });
         self.plot_selection.update_selection(plot_responce);
     }

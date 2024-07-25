@@ -19,6 +19,11 @@ impl PlotSelection {
 
         let response = &plot_response.response;
 
+        if response.clicked() {
+            self.start_pos = None;
+            self.end_pos = None;
+        }
+
         if response.drag_started() {
             self.start_pos = generate_plot_points(&plot_response, plot_bounds);
             self.end_pos = None;
