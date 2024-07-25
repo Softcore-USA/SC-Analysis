@@ -2,12 +2,13 @@ mod title_bar;
 mod trace_plotter;
 mod wave;
 mod math;
+mod loaders;
 
 use crate::trace_plotter::TracePlotter;
 use bincode::config;
 use csv::ReaderBuilder;
 use eframe::egui::Frame;
-use egui::{CentralPanel, Color32};
+use egui::{CentralPanel, Color32, containers};
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use rayon::iter::ParallelIterator;
@@ -18,9 +19,11 @@ use std::io;
 use std::io::{Read, Write};
 use std::process::exit;
 use std::time::Instant;
-use log::LevelFilter;
+use egui_modal::{Icon, Modal};
+use log::{error, LevelFilter};
 use simple_logger::SimpleLogger;
 use zstd::encode_all;
+use crate::loaders::{load_from_file, dialog_box_ok};
 
 struct App {
     trace_plotters: Vec<(TracePlotter, bool)>,
@@ -48,20 +51,21 @@ impl eframe::App for App {
             CentralPanel::default().frame(content_panel).show_inside(ui, |ui| {
                 ui.label("Hello from the root viewport");
 
+                let err = dialog_box_ok(ui, "file_error", "Could not open the file", Icon::Warning);
+
                 if ui.button("Open new Trace Plotter").clicked() {
                     let file_path = "./data.bin";
-                    let loaded_data = match load_from_file(file_path) {
-                        Ok(data) => data,
-                        Err(_) => {
-                            println!(
-                                "Could not find file specified : \"{}\" Not found",
-                                file_path
-                            );
-                            exit(1)
+                    match load_from_file(file_path) {
+                        Ok(data) => {
+                            self.open_trace_plotter(data, generate_random_string(10))
+                        },
+                        Err(e) => {
+                            error!("Failed to open file: {:?}", e);
+                            err.open();
                         }
                     };
 
-                    self.open_trace_plotter(loaded_data, generate_random_string(10));
+
                 }
             });
 
@@ -92,15 +96,6 @@ impl App {
     fn open_trace_plotter(&mut self, trace_data: Vec<Vec<(f64, f64)>>, title: String) {
         let start_time = Instant::now();
 
-        let shifts = math::compute_static_alignment(
-            0,
-            &trace_data,
-            867..992,
-            200,
-            0.50
-        );
-
-        println!("Time Taken: {:?}", start_time.elapsed());
 
 
 
@@ -124,9 +119,9 @@ impl App {
         self.trace_plotters.push((trace_plotter, true));
 
         //println!("Shifts: {:?}", max_alignments);
-        let trace_plotter = TracePlotter::new(shifts, title);
-
-        self.trace_plotters.push((trace_plotter, true));
+        // let trace_plotter = TracePlotter::new(shifts, title);
+        //
+        // self.trace_plotters.push((trace_plotter, true));
 
 
     }
@@ -162,26 +157,6 @@ fn main() -> Result<(), eframe::Error> {
     )
 }
 
-fn load_from_file(file_path: &str) -> io::Result<Vec<Vec<(f64, f64)>>> {
-    let config = config::standard();
-
-    let mut file = File::open(file_path)?;
-    let mut buffer = Vec::new();
-    file.read_to_end(&mut buffer)?;
-
-    // Measure the execution time of loading data from a binary file
-    let start_bin = Instant::now();
-    let decompressed = zstd::decode_all(&buffer[..]).unwrap();
-
-    let duration_bin = start_bin.elapsed();
-    println!("Time taken to load binary file: {:?}", duration_bin);
-
-    let data: Vec<Vec<(f64, f64)>> = bincode::decode_from_slice(&decompressed, config)
-        .unwrap()
-        .0;
-    Ok(data)
-}
-
 fn write_to_file(data: &[Vec<(f64, f64)>], file_path: &str) -> io::Result<()> {
     let config = config::standard();
 
@@ -191,34 +166,4 @@ fn write_to_file(data: &[Vec<(f64, f64)>], file_path: &str) -> io::Result<()> {
     let compressed = encode_all(&encoded[..], 0).unwrap(); // Default compression level
     file.write_all(&compressed)?;
     Ok(())
-}
-
-fn load_csv(file_path: &str) -> Result<Vec<Vec<(f64, f64)>>, Box<dyn Error>> {
-    let file = File::open(file_path)?;
-    let mut rdr = ReaderBuilder::new().has_headers(false).from_reader(file);
-
-    // Initialize a vector to hold all columns
-    let mut columns: Vec<Vec<(f64, f64)>> = Vec::new();
-    let mut first_row = true;
-
-    for result in rdr.records() {
-        let record = result?;
-        let mut iter = record.iter();
-
-        // Read the time value
-        let time: f64 = iter.next().unwrap().parse()?;
-
-        // Read the data values and organize them into columns
-        for (i, value) in iter.enumerate() {
-            let data: f64 = value.parse()?;
-            if first_row {
-                // Initialize column vectors on the first row
-                columns.push(Vec::new());
-            }
-            columns[i].push((time, data));
-        }
-        first_row = false;
-    }
-
-    Ok(columns)
 }
