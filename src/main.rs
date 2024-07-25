@@ -1,29 +1,24 @@
+mod loaders;
+mod math;
 mod title_bar;
 mod trace_plotter;
 mod wave;
-mod math;
-mod loaders;
 
-use crate::trace_plotter::TracePlotter;
+use crate::loaders::{dialog_box_ok, load_from_file};
+use crate::trace_plotter::trace_plotter::TracePlotter;
 use bincode::config;
-use csv::ReaderBuilder;
 use eframe::egui::Frame;
-use egui::{CentralPanel, Color32, containers};
+use egui::{CentralPanel, Color32};
+use egui_modal::{Icon};
+use log::{error, LevelFilter};
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
-use rayon::iter::ParallelIterator;
-use rayon::prelude::IntoParallelIterator;
-use std::error::Error;
+use simple_logger::SimpleLogger;
 use std::fs::File;
 use std::io;
-use std::io::{Read, Write};
-use std::process::exit;
+use std::io::{Write};
 use std::time::Instant;
-use egui_modal::{Icon, Modal};
-use log::{error, LevelFilter};
-use simple_logger::SimpleLogger;
 use zstd::encode_all;
-use crate::loaders::{load_from_file, dialog_box_ok};
 
 struct App {
     trace_plotters: Vec<(TracePlotter, bool)>,
@@ -48,26 +43,25 @@ impl eframe::App for App {
         CentralPanel::default().frame(root_panel).show(ctx, |ui| {
             title_bar::custom_title_bar(ui);
 
-            CentralPanel::default().frame(content_panel).show_inside(ui, |ui| {
-                ui.label("Hello from the root viewport");
+            CentralPanel::default()
+                .frame(content_panel)
+                .show_inside(ui, |ui| {
+                    ui.label("Hello from the root viewport");
 
-                let err = dialog_box_ok(ui, "file_error", "Could not open the file", Icon::Warning);
+                    let err =
+                        dialog_box_ok(ui, "file_error", "Could not open the file", Icon::Warning);
 
-                if ui.button("Open new Trace Plotter").clicked() {
-                    let file_path = "./data.bin";
-                    match load_from_file(file_path) {
-                        Ok(data) => {
-                            self.open_trace_plotter(data, generate_random_string(10))
-                        },
-                        Err(e) => {
-                            error!("Failed to open file: {:?}", e);
-                            err.open();
-                        }
-                    };
-
-
-                }
-            });
+                    if ui.button("Open new Trace Plotter").clicked() {
+                        let file_path = "./data.bin";
+                        match load_from_file(file_path) {
+                            Ok(data) => self.open_trace_plotter(data, generate_random_string(10)),
+                            Err(e) => {
+                                error!("Failed to open file: {:?}", e);
+                                err.open();
+                            }
+                        };
+                    }
+                });
 
             self.trace_plotters.retain(|(_, show)| *show);
 
@@ -94,11 +88,7 @@ impl App {
     }
 
     fn open_trace_plotter(&mut self, trace_data: Vec<Vec<(f64, f64)>>, title: String) {
-        let start_time = Instant::now();
-
-
-
-
+        let _start_time = Instant::now();
 
         let start_time = Instant::now();
 
@@ -112,9 +102,7 @@ impl App {
 
         println!("Time Taken: {:?}", start_time.elapsed());
 
-
         let trace_plotter = TracePlotter::new(trace_data, format!("{}_second", title));
-
 
         self.trace_plotters.push((trace_plotter, true));
 
@@ -122,8 +110,6 @@ impl App {
         // let trace_plotter = TracePlotter::new(shifts, title);
         //
         // self.trace_plotters.push((trace_plotter, true));
-
-
     }
 }
 
@@ -137,10 +123,10 @@ fn main() -> Result<(), eframe::Error> {
     // //
     // write_to_file(&data, "data.bin").unwrap();
 
-
-
-    SimpleLogger::new().with_level(LevelFilter::Info).init().unwrap();
-
+    SimpleLogger::new()
+        .with_level(LevelFilter::Info)
+        .init()
+        .unwrap();
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -157,9 +143,9 @@ fn main() -> Result<(), eframe::Error> {
     )
 }
 
+#[allow(dead_code)]
 fn write_to_file(data: &[Vec<(f64, f64)>], file_path: &str) -> io::Result<()> {
     let config = config::standard();
-
 
     let encoded: Vec<u8> = bincode::encode_to_vec(data, config).unwrap();
     let mut file = File::create(file_path)?;

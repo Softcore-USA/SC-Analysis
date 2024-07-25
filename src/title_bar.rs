@@ -1,12 +1,14 @@
-use egui::{Button, CentralPanel, ComboBox, Context, Direction, Id, Layout, PointerButton, RichText, Sense, Ui, ViewportCommand};
-use rfd::FileDialog;
-use std::path::PathBuf;
+use crate::loaders::{dialog_box_ok, load_from_file, open_file_explorer};
+use crate::{App};
 use eframe::emath::Align;
+use egui::{
+    Button, Direction, Id, Layout, PointerButton, RichText, Sense,
+    Ui, ViewportCommand,
+};
 use egui_modal::Icon;
 use log::error;
-use crate::{App, loaders};
-use crate::loaders::{dialog_box_ok, load_from_file, open_file_explorer};
 
+#[allow(dead_code)]
 #[derive(Debug, PartialEq)]
 enum FileItems {
     Open,
@@ -14,9 +16,7 @@ enum FileItems {
     Exit,
 }
 
-impl App {
-    
-}
+impl App {}
 pub fn custom_title_bar(ui: &mut Ui) {
     let side_margin = 10.0;
     let title_bar_height = 40.0;
@@ -77,10 +77,13 @@ pub fn custom_title_bar(ui: &mut Ui) {
     // });
 }
 
-
-
 fn file_dropdown_buttons(ui: &mut Ui) {
-    let err = dialog_box_ok(ui, "file_error", "Error trying to open file.", Icon::Warning);
+    let err = dialog_box_ok(
+        ui,
+        "file_error",
+        "Error trying to open file.",
+        Icon::Warning,
+    );
 
     let open_button = Button::new("Open");
     let exit_button = Button::new("Exit");
@@ -88,7 +91,7 @@ fn file_dropdown_buttons(ui: &mut Ui) {
     if ui.add(open_button).clicked() {
         if let Some(path) = open_file_explorer() {
             match load_from_file(&path) {
-                Ok(data) => {},
+                Ok(_data) => {}
                 Err(e) => {
                     error!("Failed to open file: {:?}", e);
                     err.open();

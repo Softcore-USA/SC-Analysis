@@ -1,3 +1,6 @@
+#![allow(dead_code)]
+
+
 #[derive(Clone)]
 pub struct SinWaveDefinition {
     pub sample_delta: f32,

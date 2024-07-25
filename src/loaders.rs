@@ -1,14 +1,14 @@
-use std::error::Error;
-use std::fs::File;
-use std::io;
-use std::io::{ErrorKind, Read};
-use std::time::Instant;
 use bincode::config;
 use csv::ReaderBuilder;
 use eframe::epaint::Color32;
 use egui::{Align, Ui};
 use egui_modal::{Icon, Modal, ModalStyle};
 use rfd::FileDialog;
+use std::error::Error;
+use std::fs::File;
+use std::io;
+use std::io::{Read};
+use std::time::Instant;
 
 pub fn open_file_explorer() -> Option<String> {
     FileDialog::new()
@@ -32,13 +32,12 @@ pub fn load_from_file(file_path: &str) -> Result<Vec<Vec<(f64, f64)>>, io::Error
     let duration_bin = start_bin.elapsed();
     println!("Time taken to load binary file: {:?}", duration_bin);
 
-    let data: Vec<Vec<(f64, f64)>> = bincode::decode_from_slice(&decompressed, config)
-        .unwrap()
-        .0;
+    let data: Vec<Vec<(f64, f64)>> = bincode::decode_from_slice(&decompressed, config).unwrap().0;
 
     Ok(data)
 }
 
+#[allow(dead_code)]
 pub fn load_csv(file_path: &str) -> Result<Vec<Vec<(f64, f64)>>, Box<dyn Error>> {
     let file = File::open(file_path)?;
     let mut rdr = ReaderBuilder::new().has_headers(false).from_reader(file);
@@ -91,7 +90,7 @@ pub fn dialog_box_ok(ui: &mut Ui, id: &str, message: &str, message_type: Icon) -
         ..Default::default()
     };
 
-    let error_dialog = Modal::new(ui.ctx(), id).with_style(&style);;
+    let error_dialog = Modal::new(ui.ctx(), id).with_style(&style);
 
     error_dialog.show(|ui| {
         error_dialog.frame(ui, |ui| {
@@ -102,8 +101,6 @@ pub fn dialog_box_ok(ui: &mut Ui, id: &str, message: &str, message_type: Icon) -
                 error_dialog.close();
             }
         });
-
-
     });
 
     error_dialog
