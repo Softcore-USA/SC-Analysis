@@ -5,7 +5,7 @@ use crate::trace_plotter::util::calculate_bounds;
 use egui::{
     vec2, Area, ComboBox, Context, Id, Key, Rect, RichText, ScrollArea, Ui, UiKind, Vec2b, Window,
 };
-use egui_plot::{Legend, Plot, PlotResponse, PlotUi};
+use egui_plot::{Plot, PlotResponse, PlotUi};
 use std::ops::Range;
 
 const MAX_NUMB_OF_POINTS: usize = 100_000;
@@ -197,7 +197,6 @@ impl TracePlotter {
     fn render_plot(&mut self, ui: &mut Ui) {
         let plot = Plot::new((&self.title, "trace_plot"))
             .width(self.plot_width)
-            .legend(Legend::default())
             .view_aspect(2.0)
             .allow_zoom(false)
             .allow_drag(false)
