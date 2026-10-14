@@ -1,6 +1,8 @@
 use egui_plot::PlotBounds;
 
-pub(crate) fn calculate_bounds(trace_data: &Vec<Vec<(f64, f64)>>) -> PlotBounds {
+pub(crate) fn calculate_bounds<'a>(
+    trace_data: impl IntoIterator<Item = &'a Vec<(f64, f64)>>,
+) -> PlotBounds {
     let mut min_x = f64::INFINITY;
     let mut max_x = f64::NEG_INFINITY;
     let mut min_y = f64::INFINITY;

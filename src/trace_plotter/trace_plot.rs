@@ -1,9 +1,19 @@
 use crate::trace_plotter::Trace;
+use egui::ecolor::Hsva;
+use egui::Color32;
 use egui_plot::{Line, PlotPoints, PlotUi};
 
 #[derive(Clone, Debug)]
 pub(crate) struct TracePlot {
     pub trace: Trace,
+    /// Display name (shown in the legend and the trace list)
+    pub name: String,
+    /// Fixed color so a trace keeps its color when others are toggled
+    pub color: Color32,
+    /// Whether the trace is drawn in "Overlay" mode
+    pub visible: bool,
+    /// File the trace was loaded from
+    pub source: String,
 }
 
 impl TracePlot {
@@ -33,6 +43,10 @@ impl TracePlot {
             }
         }
 
+        if visible_points.is_empty() {
+            return;
+        }
+
         let total_points = visible_points.len();
         let step = if total_points > max_visible_points_per_trace {
             total_points / max_visible_points_per_trace
@@ -52,11 +66,26 @@ impl TracePlot {
             }
         }
 
-        let line = Line::new(PlotPoints::new(values));
+        let line = Line::new(PlotPoints::new(values))
+            .name(&self.name)
+            .color(self.color);
         plot_ui.line(line);
     }
 
-    pub(crate) fn new(trace: Trace) -> Self {
-        TracePlot { trace }
+    pub(crate) fn new(trace: Trace, name: String, source: String, index: usize) -> Self {
+        TracePlot {
+            trace,
+            name,
+            color: trace_color(index),
+            visible: false,
+            source,
+        }
     }
+}
+
+/// Distinct, stable color per trace index (golden-ratio hue spacing).
+fn trace_color(index: usize) -> Color32 {
+    let golden_ratio = (5.0_f32.sqrt() - 1.0) / 2.0;
+    let h = (index as f32 * golden_ratio).fract();
+    Hsva::new(h, 0.85, 0.5, 1.0).into()
 }

@@ -1,23 +1,19 @@
-use crate::loaders::{dialog_box_ok, load_from_file, open_file_explorer};
-use crate::{App};
 use eframe::emath::Align;
 use egui::{
     Button, Direction, Id, Layout, PointerButton, RichText, Sense,
     Ui, ViewportCommand,
 };
-use egui_modal::Icon;
-use log::error;
 
-#[allow(dead_code)]
-#[derive(Debug, PartialEq)]
-enum FileItems {
-    Open,
-    Close,
-    Exit,
+/// Menu actions the title bar asks the app to perform.
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum TitleBarAction {
+    None,
+    OpenWorkspace,
+    ToggleSideBar,
 }
 
-impl App {}
-pub fn custom_title_bar(ui: &mut Ui) {
+pub fn custom_title_bar(ui: &mut Ui) -> TitleBarAction {
+    let mut action = TitleBarAction::None;
     let side_margin = 10.0;
     let title_bar_height = 40.0;
 
@@ -46,10 +42,15 @@ pub fn custom_title_bar(ui: &mut Ui) {
 
                 ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                     ui.menu_button("File", |ui| {
-                        file_dropdown_buttons(ui);
+                        if let Some(a) = file_dropdown_buttons(ui) {
+                            action = a;
+                        }
                     });
                     ui.menu_button("View", |ui| {
-                        ui.button("Side Bar").clicked();
+                        if ui.button("Side Bar").clicked() {
+                            action = TitleBarAction::ToggleSideBar;
+                            ui.close_menu();
+                        }
                     })
                 });
 
@@ -75,37 +76,24 @@ pub fn custom_title_bar(ui: &mut Ui) {
     //         _ = open_file_explorer();
     //     }
     // });
+
+    action
 }
 
-fn file_dropdown_buttons(ui: &mut Ui) {
-    let err = dialog_box_ok(
-        ui,
-        "file_error",
-        "Error trying to open file.",
-        Icon::Warning,
-    );
-
-    let open_button = Button::new("Open");
+fn file_dropdown_buttons(ui: &mut Ui) -> Option<TitleBarAction> {
+    let open_workspace_button = Button::new("Open Workspace…");
     let exit_button = Button::new("Exit");
 
-    if ui.add(open_button).clicked() {
-        if let Some(path) = open_file_explorer() {
-            match load_from_file(&path) {
-                Ok(_data) => {}
-                Err(e) => {
-                    error!("Failed to open file: {:?}", e);
-                    err.open();
-                }
-            };
-        } else {
-            error!("Path doesnt exist.");
-            err.open();
-        }
+    if ui.add(open_workspace_button).clicked() {
+        ui.close_menu();
+        return Some(TitleBarAction::OpenWorkspace);
     }
 
     if ui.add(exit_button).clicked() {
         ui.ctx().send_viewport_cmd(ViewportCommand::Close);
     }
+
+    None
 }
 
 fn minimize_maximize_close(ui: &mut Ui) {

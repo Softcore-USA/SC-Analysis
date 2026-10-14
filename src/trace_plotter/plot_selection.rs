@@ -1,5 +1,6 @@
 use crate::trace_plotter::Trace;
 use eframe::epaint::{Color32, Stroke};
+use egui::PointerButton;
 use egui_plot::{PlotBounds, PlotPoint, PlotPoints, PlotResponse, PlotUi, Polygon};
 use std::ops::Range;
 
@@ -18,6 +19,20 @@ impl PlotSelection {
         let plot_bounds = plot_transform.bounds();
 
         let response = &plot_response.response;
+
+        // Ctrl + middle mouse drag: slide the viewing window along the x axis
+        if response.dragged_by(PointerButton::Middle) {
+            let ctrl_held = response.ctx.input(|i| i.modifiers.command);
+            if ctrl_held {
+                // Convert the pixel drag distance into plot units
+                let units_per_pixel =
+                    plot_bounds.width() / plot_transform.frame().width() as f64;
+                let dx = -(response.drag_delta().x as f64) * units_per_pixel;
+                self.plot_bounds.translate_x(dx);
+            }
+            // Middle-button drags never change the selection box
+            return;
+        }
 
         if response.clicked() {
             self.start_pos = None;
@@ -102,6 +117,15 @@ impl PlotSelection {
             Some(start_idx..end_idx + 1)
         } else {
             None
+        }
+    }
+
+    /// Updates the full-view bounds (e.g. after traces are added). The current
+    /// view follows along unless the user has zoomed in.
+    pub(crate) fn set_default_bounds(&mut self, bounds: PlotBounds) {
+        self.default_bounds = bounds;
+        if self.zoom_history.is_empty() {
+            self.plot_bounds = bounds;
         }
     }
 
